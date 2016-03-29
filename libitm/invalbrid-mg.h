@@ -51,7 +51,7 @@ namespace GTM HIDDEN {
      _ITM_transactionId_t get_transaction_id();
     void change_transaction_mode(_ITM_transactionState);
     // Gives the caller serial access without changing the transaction state to
-    // serial. This is needed for changes on the clone table.
+    // serial. This is needed for changes in the clone table.
     void acquire_serial_access();
     // Releases the serial access acquired in the function above. 
     void release_serial_access();

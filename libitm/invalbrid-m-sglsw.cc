@@ -71,7 +71,9 @@ public:
     tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE; 
      
   }
+  
   gtm_restart_reason validate() { return NO_RESTART; }
+  
   gtm_restart_reason trycommit() 
   {
     pthread_mutex_unlock(&invalbrid_mg::commit_lock);

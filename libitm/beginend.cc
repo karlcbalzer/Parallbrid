@@ -80,7 +80,6 @@ void set_default_method_group();
 uint32_t
 GTM::method_group::begin_transaction(uint32_t prop, const gtm_jmpbuf *jb)
 {
-  std::cout << "Trans begin";
   if(unlikely(method_group::method_gr == 0))
     set_default_method_group();
   return method_group::method_gr->begin(prop, jb);
@@ -178,8 +177,7 @@ parse_default_method_group()
   method_group* meth_gr = 0;
   if (env == NULL) 
     {
-      GTM::GTM_error("No environment variable ITM_DEFAULT_METHOD_GROUP found");
-      return 0;
+      return GTM::method_group_invalbrid();
     }
 
   while (isspace((unsigned char) *env))

@@ -52,11 +52,14 @@ uint32_t invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
   }
   
   if(tx->nesting > 0)
-    // This is a nested transaction.
-    return (prop & pr_uninstrumentedCode) ? 
-      a_runUninstrumentedCode : a_runInstrumentedCode;
+      {
+	// This is a nested transaction.
+	tx->nesting++;
+	return (prop & pr_uninstrumentedCode) ? 
+	  a_runUninstrumentedCode : a_runInstrumentedCode;
+      }
   
-  // Initialization that is common for outermost and nested transactions.
+  // Initialization that is common for outermost and closed nested transactions.
   tx->prop = prop;
   tx->jb = *jb;
   tx->nesting++;
@@ -94,21 +97,30 @@ void invalbrid_mg::abort(_ITM_abortReason)
 
 void invalbrid_mg::commit() 
 {
-  gtm_restart_reason rr;
-  rr = abi_disp()->trycommit();
-  if (rr != NO_RESTART) restart(rr);
+  gtm_thread *tx = gtm_thr();
+  tx->nesting--;
+  if (!(tx->nesting > 0))
+    {
+      gtm_restart_reason rr;
+      rr = abi_disp()->trycommit();
+      if (rr != NO_RESTART) restart(rr);
+    }
 }
 
 void invalbrid_mg::commit_EH(void *exc_ptr)
 {
   gtm_thread *tx = gtm_thr();
+  tx->nesting--;
   gtm_restart_reason rr;
-  rr = abi_disp()->trycommit();
-  if (rr != NO_RESTART)
-  {
-    restart(rr);
-    tx->eh_in_flight = exc_ptr;
-  }
+  if (!(tx->nesting >0))
+    {
+      rr = abi_disp()->trycommit();
+      if (rr != NO_RESTART)
+      {
+	restart(rr);
+	tx->eh_in_flight = exc_ptr;
+      }
+    }
 }
 
 _ITM_howExecuting invalbrid_mg::in_transaction()
@@ -138,15 +150,19 @@ void invalbrid_mg::acquire_serial_access()
 {
   gtm_thread *tx = gtm_thr();
   if (!(tx && (tx->state & gtm_thread::STATE_SERIAL)))
-  {
-    pthread_mutex_lock(&commit_lock);
-    gtm_restart_reason rr = abi_disp()->validate();
-    if (!(rr == NO_RESTART))
     {
-      pthread_mutex_unlock(&commit_lock);
-      restart(rr);
+      pthread_mutex_lock(&commit_lock);
+      abi_dispatch *disp = abi_disp();
+      if (tx && disp) 
+	{
+	  gtm_restart_reason rr = disp->validate();
+	  if (!(rr == NO_RESTART))
+	    {
+	      pthread_mutex_unlock(&commit_lock);
+	      restart(rr);
+	    }
+	}
     }
-  }
 }
 
 void invalbrid_mg::release_serial_access()
