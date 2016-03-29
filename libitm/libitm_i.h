@@ -50,9 +50,9 @@ using namespace std;
 
 typedef unsigned int gtm_word __attribute__((mode (word)));
 
-// These values are given to GTM_restart_transaction and indicate the
-// reason for the restart.  The reason is used to decide what STM
-// implementation should be used during the next iteration.
+// These values can be given to the restart handler to indicate the
+// reason for the restart.  The reason can be used to decide what TM
+// method implementation should be used during the next iteration.
 enum gtm_restart_reason
 {
   RESTART_REALLOCATE,
@@ -77,15 +77,8 @@ enum gtm_restart_reason
 #include "dispatch.h"
 #include "containers.h"
 
-#ifdef __USER_LABEL_PREFIX__
-# define UPFX UPFX1(__USER_LABEL_PREFIX__)
-# define UPFX1(t) UPFX2(t)
-# define UPFX2(t) #t
-#else
-# define UPFX
-#endif
-
 namespace GTM HIDDEN {
+
 
 // A log of (de)allocation actions.  We defer handling of some actions until
 // a commit of the outermost transaction.  We also rely on potentially having
@@ -155,13 +148,6 @@ struct gtm_undolog
   void rollback (gtm_thread* tx, size_t until_size = 0);
 };
 
-// An entry of a read or write log.  Used by multi-lock TM methods.
-struct gtm_rwlog_entry
-{
-  atomic<gtm_word> *orec;
-  gtm_word value;
-};
-
 // Contains all thread-specific data required by the entire library.
 // This includes all data relevant to a single transaction. Because most
 // thread-specific data is about the current transaction, we also refer to
@@ -190,10 +176,6 @@ struct gtm_thread
 
   // Data used by local.c for the undo log for both local and shared memory.
   gtm_undolog undolog;
-
-  // Read and write logs.  Used by multi-lock TM methods.
-  vector<gtm_rwlog_entry> readlog;
-  vector<gtm_rwlog_entry> writelog;
 
   // Data used by alloc.c for the malloc/free undo log.
   aa_tree<uintptr_t, gtm_alloc_action> alloc_actions;
@@ -257,13 +239,6 @@ struct gtm_thread
   // an active or serial transaction.
   atomic<gtm_word> shared_state;
 
-  // The lock that provides access to serial mode.  Non-serialized
-  // transactions acquire read locks; a serialized transaction aquires
-  // a write lock.
-  // Accessed from assembly language, thus the "asm" specifier on
-  // the name, avoiding complex name mangling.
-  static gtm_rwlock serial_lock __asm__(UPFX "gtm_serial_lock");
-
   // The head of the list of all threads' transactions.
   static gtm_thread *list_of_threads;
   // The number of all registered threads.
@@ -279,36 +254,15 @@ struct gtm_thread
     alloc_actions.erase((uintptr_t) ptr);
   }
 
-  // In beginend.cc
-  void rollback (gtm_transaction_cp *cp = 0, bool aborting = false);
-  bool trycommit ();
-  void restart (gtm_restart_reason, bool finish_serial_upgrade = false)
-        ITM_NORETURN;
-
   gtm_thread();
   ~gtm_thread();
 
   static void *operator new(size_t);
   static void operator delete(void *);
-
-  // Invoked from assembly language, thus the "asm" specifier on
-  // the name, avoiding complex name mangling.
-  static uint32_t begin_transaction(uint32_t, const gtm_jmpbuf *)
-	__asm__(UPFX "GTM_begin_transaction") ITM_REGPARM;
+  
   // In eh_cpp.cc
   void init_cpp_exceptions ();
   void revert_cpp_exceptions (gtm_transaction_cp *cp = 0);
-
-  // In retry.cc
-  // Must be called outside of transactions (i.e., after rollback).
-  void decide_retry_strategy (gtm_restart_reason);
-  abi_dispatch* decide_begin_dispatch (uint32_t prop);
-  void number_of_threads_changed(unsigned previous, unsigned now);
-  // Must be called from serial mode. Does not call set_abi_disp().
-  void set_default_dispatch(abi_dispatch* disp);
-
-  // In method-serial.cc
-  void serialirr_mode ();
 
   // In useraction.cc
   void rollback_user_actions (size_t until_size = 0);
@@ -320,6 +274,16 @@ struct gtm_thread
 #include "tls.h"
 
 namespace GTM HIDDEN {
+
+// The global variable for the transaction ids. The block size variable is for 
+// allocating a chunk of ids to minimize contention on nested transactions.  
+#ifdef HAVE_64BIT_SYNC_BUILTINS
+static atomic<_ITM_transactionId_t> global_tid;
+#else
+static _ITM_transactionId_t global_tid;
+static pthread_mutex_t global_tid_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
+static const _ITM_transactionId_t tid_block_size = 1 << 16;
 
 // An unscaled count of the number of times we should spin attempting to
 // acquire locks before we block the current thread and defer to the OS.
@@ -336,13 +300,14 @@ extern void GTM_error (const char *fmt, ...)
 	__attribute__((format (printf, 1, 2)));
 extern void GTM_fatal (const char *fmt, ...)
 	__attribute__((noreturn, format (printf, 1, 2)));
+	
+extern void set_default_method_group();
 
-extern abi_dispatch *dispatch_serial();
-extern abi_dispatch *dispatch_serialirr();
-extern abi_dispatch *dispatch_serialirr_onwrite();
-extern abi_dispatch *dispatch_gl_wt();
-extern abi_dispatch *dispatch_ml_wt();
-extern abi_dispatch *dispatch_htm();
+// Methods that are used by the method groups.
+extern abi_dispatch *dispatch_invalbrid_sglsw();
+
+// The method groups that can be uses
+extern method_group *method_group_invalbrid();
 
 
 } // namespace GTM

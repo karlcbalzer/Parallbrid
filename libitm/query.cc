@@ -43,37 +43,22 @@ _ITM_libraryVersion (void)
 _ITM_howExecuting ITM_REGPARM
 _ITM_inTransaction (void)
 {
-#if defined(USE_HTM_FASTPATH)
-  // If we use the HTM fastpath, we cannot reliably detect whether we are
-  // in a transaction because this function can be called outside of
-  // a transaction and thus we can't deduce this by looking at just the serial
-  // lock.  This function isn't used in practice currently, so the easiest
-  // way to handle it is to just abort.
-  if (gtm_thread::serial_lock.get_htm_fastpath() && htm_transaction_active())
-    htm_abort();
-#endif
-  struct gtm_thread *tx = gtm_thr();
-  if (tx && (tx->nesting > 0))
-    {
-      if (tx->state & gtm_thread::STATE_IRREVOCABLE)
-	return inIrrevocableTransaction;
-      else
-	return inRetryableTransaction;
-    }
-  return outsideTransaction;
+  // We let the method group determin if this execution is transactional,
+  // because a hardware transaction might not have a thread object.
+  if(unlikely(method_group::method_gr == 0))
+    set_default_method_group();
+  return method_group::method_gr->in_transaction();
 }
 
 
 _ITM_transactionId_t ITM_REGPARM
 _ITM_getTransactionId (void)
 {
-#if defined(USE_HTM_FASTPATH)
-  // See ITM_inTransaction.
-  if (gtm_thread::serial_lock.get_htm_fastpath() && htm_transaction_active())
-    htm_abort();
-#endif
-  struct gtm_thread *tx = gtm_thr();
-  return (tx && (tx->nesting > 0)) ? tx->id : _ITM_noTransactionId;
+  // We let the method group determin the transaction id. The reason is the same
+  // as with inTransaction.
+  if(unlikely(method_group::method_gr == 0))
+    set_default_method_group();
+  return method_group::method_gr->get_transaction_id();
 }
 
 

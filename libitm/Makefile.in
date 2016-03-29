@@ -122,9 +122,9 @@ libitm_la_LIBADD =
 @ARCH_FUTEX_TRUE@am__objects_3 = futex.lo
 am_libitm_la_OBJECTS = aatree.lo alloc.lo alloc_c.lo alloc_cpp.lo \
 	barrier.lo beginend.lo clone.lo eh_cpp.lo local.lo query.lo \
-	retry.lo rwlock.lo useraction.lo util.lo sjlj.lo tls.lo \
-	method-serial.lo method-gl.lo method-ml.lo $(am__objects_1) \
-	$(am__objects_2) $(am__objects_3)
+	useraction.lo util.lo sjlj.lo tls.lo invalbrid-mg.lo \
+	invalbrid-m-sglsw.lo $(am__objects_1) $(am__objects_2) \
+	$(am__objects_3)
 libitm_la_OBJECTS = $(am_libitm_la_OBJECTS)
 DEFAULT_INCLUDES = -I.@am__isrc@
 depcomp = $(SHELL) $(top_srcdir)/../depcomp
@@ -360,9 +360,9 @@ libitm_la_LINK = $(LINK) $(libitm_la_LDFLAGS)
 libitm_la_LDFLAGS = $(libitm_version_info) $(libitm_version_script)
 libitm_la_SOURCES = aatree.cc alloc.cc alloc_c.cc alloc_cpp.cc \
 	barrier.cc beginend.cc clone.cc eh_cpp.cc local.cc query.cc \
-	retry.cc rwlock.cc useraction.cc util.cc sjlj.S tls.cc \
-	method-serial.cc method-gl.cc method-ml.cc $(am__append_1) \
-	$(am__append_2) $(am__append_3)
+	useraction.cc util.cc sjlj.S tls.cc invalbrid-mg.cc \
+	invalbrid-m-sglsw.cc $(am__append_1) $(am__append_2) \
+	$(am__append_3)
 
 # Automake Documentation:
 # If your package has Texinfo files in many directories, you can use the
@@ -491,13 +491,10 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eh_cpp.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/futex.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/hwcap.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/invalbrid-m-sglsw.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/invalbrid-mg.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/local.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/method-gl.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/method-ml.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/method-serial.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/query.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/retry.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/rwlock.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sjlj.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/tls.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/useraction.Plo@am__quote@

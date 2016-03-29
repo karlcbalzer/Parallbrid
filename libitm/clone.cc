@@ -82,7 +82,7 @@ _ITM_getTMCloneOrIrrevocable (void *ptr)
   if (ret)
     return ret;
 
-  gtm_thr()->serialirr_mode ();
+  method_group::method_gr->change_transaction_mode(modeSerialIrrevocable);
 
   return ptr;
 }
@@ -112,11 +112,10 @@ clone_entry_compare (const void *a, const void *b)
 
 namespace {
 
-// Within find_clone, we know that we are inside a transaction.  Because
-// of that, we have already synchronized with serial_lock.  By taking the
-// serial_lock for write, we exclude all transactions while we make this
-// change to the clone tables, without having to synchronize on a separate
-// lock.  Do be careful not to attempt a recursive write lock.
+// Within find_clone, we know that we are inside a transaction.  
+// By acquiring seriel access, we exclude all transactions while we make
+// this change to the clone tables, without having to synchronize on a 
+// separate lock.  Do be careful not to attempt a recursive write lock.
 
 class ExcludeTransaction
 {
@@ -128,14 +127,17 @@ class ExcludeTransaction
     gtm_thread *tx = gtm_thr();
     do_lock = !(tx && (tx->state & gtm_thread::STATE_SERIAL));
 
-    if (do_lock)
-      gtm_thread::serial_lock.write_lock ();
+    if (do_lock){
+      if(unlikely(method_group::method_gr == 0))
+	set_default_method_group();
+      method_group::method_gr->acquire_serial_access();
+    }
   }
 
   ~ExcludeTransaction()
   {
     if (do_lock)
-      gtm_thread::serial_lock.write_unlock ();
+      method_group::method_gr->release_serial_access();
   }
 };
 
@@ -182,3 +184,48 @@ _ITM_deregisterTMCloneTable (void *xent)
 
   free (tab);
 }
+
+/*
+ namespace {
+
+// Within find_clone, we know that we are inside a transaction.  Because
+// of that, we have already synchronized with serial_lock.  By taking the
+// serial_lock for write, we exclude all transactions while we make this
+// change to the clone tables, without having to synchronize on a separate
+// lock.  Do be careful not to attempt a recursive write lock.
+
+class ExcludeTransaction
+{
+  bool do_lock;
+
+ public:
+  ExcludeTransaction()
+  {
+    gtm_thread *tx = gtm_thr();
+    do_lock = !(tx && (tx->state & gtm_thread::STATE_SERIAL));
+
+    if (do_lock)
+      gtm_thread::serial_lock.write_lock ();
+  }
+
+  ~ExcludeTransaction()
+  {
+    if (do_lock)
+      gtm_thread::serial_lock.write_unlock ();
+  }
+};
+
+} // end anon namespace
+
+
+void * ITM_REGPARM
+_ITM_getTMCloneOrIrrevocable (void *ptr)
+{
+  void *ret = find_clone (ptr);
+  if (ret)
+    return ret;
+
+  gtm_thr()->serialirr_mode ();
+
+  return ptr;
+}*/

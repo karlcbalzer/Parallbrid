@@ -132,10 +132,11 @@ typedef void (* _ITM_userCommitFunction) (void *);
 #define _ITM_VERSION "0.90 (Feb 29 2008)"
 #define _ITM_VERSION_NO 90
 
+//The following 5 functions are defined in query.cc.
 extern int _ITM_versionCompatible (int) ITM_REGPARM;
 extern const char * _ITM_libraryVersion (void) ITM_REGPARM;
 
-void _ITM_error(const _ITM_srcLocation *, int errorCode)
+extern void _ITM_error(const _ITM_srcLocation *, int errorCode)
   ITM_REGPARM ITM_NORETURN;
 
 extern _ITM_howExecuting _ITM_inTransaction(void) ITM_REGPARM;
@@ -145,8 +146,12 @@ typedef uint64_t _ITM_transactionId_t;	/* Transaction identifier */
 
 extern _ITM_transactionId_t _ITM_getTransactionId(void) ITM_REGPARM;
 
+// This function is implemented in assembler in sjlj.S in the appropriate 
+// architectures config directory. From assembler the function 
+// method_group::begin_transaction() will be called.
 extern uint32_t _ITM_beginTransaction(uint32_t, ...) ITM_REGPARM;
 
+// The following 3 functions are defined in beginend.cc
 extern void _ITM_abortTransaction(_ITM_abortReason) ITM_REGPARM ITM_NORETURN;
 
 extern void _ITM_commitTransaction (void) ITM_REGPARM;

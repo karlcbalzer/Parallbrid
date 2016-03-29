@@ -59,8 +59,8 @@ libitm_la_LDFLAGS = $(libitm_version_info) $(libitm_version_script)
 libitm_la_SOURCES = \
 	aatree.cc alloc.cc alloc_c.cc alloc_cpp.cc barrier.cc beginend.cc \
 	clone.cc eh_cpp.cc local.cc \
-	query.cc retry.cc rwlock.cc useraction.cc util.cc \
-	sjlj.S tls.cc method-serial.cc method-gl.cc method-ml.cc
+	query.cc useraction.cc util.cc \
+	sjlj.S tls.cc invalbrid-mg.cc invalbrid-m-sglsw.cc
 
 if ARCH_ARM
 libitm_la_SOURCES += hwcap.cc

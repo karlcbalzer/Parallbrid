@@ -74,52 +74,6 @@
 SYM(_ITM_beginTransaction):
 	cfi_startproc
 #ifdef __x86_64__
-#ifdef HAVE_AS_RTM
-	/* Custom HTM fast path.  We start the HW transaction here and let
-	   gtm_thread::begin_transaction (aka GTM_begin_transaction) decide
-	   how to proceed on aborts: We either retry the fast path, or fall
-	   back to another execution method.  RTM restores all registers after
-	   a HW transaction abort, so we can do the SW setjmp after aborts,
-	   and we have to because we might choose a SW fall back.  However,
-	   we have to explicitly save/restore the first argument (edi).
-	   The htm_fastpath field is the second int in gtm_rwlock.  */
-	cmpl	$0, (SYM(gtm_serial_lock)+4)(%rip)
-	jz	.Lno_htm
-	testl	$pr_hasNoAbort, %edi
-	jz	.Lno_htm
-.Lhtm_fastpath:
-	xbegin	.Ltxn_abort
-	/* Monitor the serial lock (specifically, the 32b writer/summary field
-	   at its start), and only continue if there is no serial-mode
-	   transaction.  Note that we might be just a nested transaction and
-	   our outermost transaction might be in serial mode; we check for
-	   this case in the retry policy implementation.  */
-	cmpl	$0, SYM(gtm_serial_lock)(%rip)
-	jnz	1f
-	/* Now also check that HW transactions are still allowed to run (see
-	   gtm_thread::begin_transaction for why this is necessary).  */
-	cmpl	$0, (SYM(gtm_serial_lock)+4)(%rip)
-	jz	1f
-	/* Everything is good.  Run the transaction, preferably using the
-	   uninstrumented code path.  Note that the following works because
-	   pr_uninstrumentedCode == a_runUninstrumentedCode.  */
-	andl	$pr_uninstrumentedCode, %edi
-	mov	$a_runInstrumentedCode, %eax
-	cmovnz	%edi, %eax
-	ret
-	/* There is a serial-mode transaction or HW transactions are not
-	   allowed anymore, so abort (see htm_abort() regarding the abort
-	   code).  */
-1:	xabort	$0xff
-.Ltxn_abort:
-	/* If it might make sense to retry the HTM fast path, let the C++
-	   code decide.  */
-	testl	$(_XABORT_RETRY|_XABORT_EXPLICIT), %eax
-	jz	.Lno_htm
-	orl	$pr_HTMRetryableAbort, %edi
-	/* Let the C++ code handle the retry policy.  */
-.Lno_htm:
-#endif
 	leaq	8(%rsp), %rax
 	subq	$72, %rsp
 	cfi_adjust_cfa_offset(72)
@@ -142,21 +96,6 @@ SYM(_ITM_beginTransaction):
 	movl	8(%rsp), %edi
 	addq	$72, %rsp
 	cfi_adjust_cfa_offset(-72)
-#ifdef HAVE_AS_RTM
-	/* If a_tryHTMFastPath was returned, then we need to retry the
-	   fast path.  We also restore edi and set pr_HTMRetriedAfterAbort
-	   to state that we have retried the fast path already (it's harmless
-	   if this bit is set even if we don't retry the fast path because it
-	   is checked iff pr_HTMRetryableAbort is set).  We clear
-	   pr_HTMRetryableAbort because it applies to a previous HW
-	   transaction attempt.  */
-	cmpl	$a_tryHTMFastPath, %eax
-	jnz	2f
-	andl	$(0xffffffff-pr_HTMRetryableAbort), %edi
-	orl	$pr_HTMRetriedAfterAbort, %edi
-	jmp	.Lhtm_fastpath
-2:
-#endif
 #else
 	leal	4(%esp), %ecx
 	movl	4(%esp), %eax

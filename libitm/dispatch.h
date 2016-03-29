@@ -28,6 +28,14 @@
 #include "libitm.h"
 #include "common.h"
 
+#ifdef __USER_LABEL_PREFIX__
+# define UPFX UPFX1(__USER_LABEL_PREFIX__)
+# define UPFX1(t) UPFX2(t)
+# define UPFX2(t) #t
+#else
+# define UPFX
+#endif
+
 // Creates ABI load/store methods (can be made virtual or static using M,
 // use M2 to create separate methods names for virtual and static)
 // The _PV variants are for the pure-virtual methods in the base class.
@@ -236,23 +244,49 @@ void ITM_REGPARM _ITM_memset##WRITE(void *dst, int c, size_t size) \
 
 namespace GTM HIDDEN {
 
-struct gtm_transaction_cp;
+struct gtm_jmpbuf;
 
+// This is the base interface that all TM method groups have to implement.
+// The method group is the common structure for all TM methods that could run
+// concurrently. It manages which of its TM methods should be used for the
+// start/restart of a transaction and holds their common data. Also abort and
+// commit of a transaction are handled here, before the methods specific
+// handlers are invoked.
+// There is only one method group, when this library is used. Which one is 
+// determined by an environment variable(ITM_DEFAULT_METHOD_GROUP)
 struct method_group
 {
-  // Start using a TM method from this group. This constructs required meta
-  // data on demand when this method group is actually used. Will be called
-  // either on first use or after a previous call to fini().
+public:
+  // A reference to the current method group. It is set by 
+  // set_default_method_group().
+  static method_group *method_gr;
+  // This function is invoked from assembler by _ITM_beginTransaction and calls
+  // the begin function of the method_group referenced in method_gr.
+  static uint32_t begin_transaction(uint32_t, const gtm_jmpbuf *)
+    __asm__(UPFX "GTM_begin_transaction") ITM_REGPARM;
+  // Initializes the method group, before first use.
   virtual void init() = 0;
-  // Stop using any method from this group for now. This can be used to
-  // destruct meta data as soon as this method group is not used anymore.
-  virtual void fini() = 0;
-  // This can be overriden to implement more light-weight re-initialization.
-  virtual void reinit()
-  {
-    fini();
-    init();
-  }
+  // Decides which TM method should be used for the transaction, sets up the
+  // appropiate meta data.
+  virtual uint32_t begin(uint32_t, const gtm_jmpbuf *) = 0;
+  // Aborts the current transaction.
+  virtual void abort(_ITM_abortReason) ITM_NORETURN = 0;
+  // Trys to commit the current transaction. If it fails, the transaction will
+  // be restartet with same or another method.
+  virtual void commit() = 0;
+  virtual void commit_EH(void *) = 0;
+  // Determines the transactional status of the current thread.
+  virtual _ITM_howExecuting in_transaction() = 0;
+  virtual _ITM_transactionId_t get_transaction_id() = 0;
+  virtual void change_transaction_mode(_ITM_transactionState) = 0;
+  // Gives the caller serial access without changing the transaction state to
+  // serial. This is needed for changes on the clone table.
+  virtual void acquire_serial_access() = 0;
+  // Releases the serial access acquired in the function above. 
+  virtual void release_serial_access() = 0;
+  // Restart routine for any transaction of this method_group. The restart 
+  // resaon indicates what happend.
+  virtual void restart(gtm_restart_reason rr);
 };
 
 
@@ -268,88 +302,24 @@ private:
   abi_dispatch& operator=(const abi_dispatch &) = delete;
 
 public:
-  // Starts or restarts a transaction. Is called right before executing the
-  // transactional application code (by either returning from
-  // gtm_thread::begin_transaction or doing the longjmp when restarting).
-  // Returns NO_RESTART if the transaction started successfully. Returns
-  // a real restart reason if it couldn't start and does need to abort. This
-  // allows TM methods to just give up and delegate ensuring progress to the
-  // restart mechanism. If it returns a restart reason, this call must be
-  // idempotent because it will trigger the restart mechanism, which could
-  // switch to a different TM method.
-  virtual gtm_restart_reason begin_or_restart() = 0;
-  // Tries to commit the transaction. Iff this returns true, the transaction
-  // got committed and all per-transaction data will have been reset.
-  // Currently, this is called only for the commit of the outermost
-  // transaction, or when switching to serial mode (which can happen in a
-  // nested transaction).
-  // If privatization safety must be ensured in a quiescence-based way, set
-  // priv_time to a value different to 0. Nontransactional code will not be
-  // executed after this commit until all registered threads' shared_state is
-  // larger than or equal to this value.
-  virtual bool trycommit(gtm_word& priv_time) = 0;
-  // Rolls back a transaction. Called on abort or after trycommit() returned
-  // false.
-  virtual void rollback(gtm_transaction_cp *cp = 0) = 0;
-  // Returns true iff the snapshot is most recent, which will be the case if
-  // this transaction cannot be the reason why other transactions cannot
-  // ensure privatization safety.
-  virtual bool snapshot_most_recent() = 0;
-
-  // Return an alternative method that is compatible with the current
-  // method but supports closed nesting. Return zero if there is none.
-  // Note that too be compatible, it must be possible to switch to this other
-  // method on begin of a nested transaction without committing or restarting
-  // the parent method.
-  virtual abi_dispatch* closed_nesting_alternative() { return 0; }
-  // Returns true iff this method group supports the current situation.
-  // NUMBER_OF_THREADS is the current number of threads that might execute
-  // transactions.
-  virtual bool supports(unsigned number_of_threads) { return true; }
-
-  bool read_only () const { return m_read_only; }
-  bool write_through() const { return m_write_through; }
-  bool can_run_uninstrumented_code() const
-  {
-    return m_can_run_uninstrumented_code;
-  }
-  // Returns true iff this TM method supports closed nesting.
-  bool closed_nesting() const { return m_closed_nesting; }
-  // Returns STATE_SERIAL or STATE_SERIAL | STATE_IRREVOCABLE iff the TM
-  // method only works for serial-mode transactions.
-  uint32_t requires_serial() const { return m_requires_serial; }
-  method_group* get_method_group() const { return m_method_group; }
-
-  static void *operator new(size_t s) { return xmalloc (s); }
-  static void operator delete(void *p) { free (p); }
-
-public:
   static bool memmove_overlap_check(void *dst, const void *src, size_t size,
       ls_modifier dst_mod, ls_modifier src_mod);
+  
+  virtual void begin();
+  virtual gtm_restart_reason validate();
+  virtual gtm_restart_reason trycommit();
 
   // Creates the ABI dispatch methods for loads and stores.
-  // ??? Should the dispatch table instead be embedded in the dispatch object
-  // to avoid the indirect lookup in the vtable?
   CREATE_DISPATCH_METHODS_PV(virtual, )
   // Creates the ABI dispatch methods for memcpy/memmove/memset.
   CREATE_DISPATCH_METHODS_MEM_PV()
 
 protected:
-  const bool m_read_only;
-  const bool m_write_through;
-  const bool m_can_run_uninstrumented_code;
-  const bool m_closed_nesting;
-  const uint32_t m_requires_serial;
   method_group* const m_method_group;
-  abi_dispatch(bool ro, bool wt, bool uninstrumented, bool closed_nesting,
-      uint32_t requires_serial, method_group* mg) :
-    m_read_only(ro), m_write_through(wt),
-    m_can_run_uninstrumented_code(uninstrumented),
-    m_closed_nesting(closed_nesting), m_requires_serial(requires_serial),
-    m_method_group(mg)
-  { }
+  abi_dispatch(method_group* mg) : m_method_group(mg) { }
 };
 
-}
+} // GTM namespace
+
 
 #endif // DISPATCH_H
