@@ -26,17 +26,68 @@
 
 #include "libitm_i.h"
 #include <pthread.h>
-#include "local_atomic"
+#include <unordered_map>
 
 
 namespace GTM HIDDEN {
+  struct bloomfilter
+  {
+    uint32_t bf[32];
+    
+    // Add an address to the bloomfilter.
+    void add_address (void *);
+    // Adds a bloomfilter to this bloomfilter.
+    void merge (const bloomfilter *);
+    // Check for an intersection between the bloomfilters.
+    bool intersects (const bloomfilter *);
+    // Returns true if the bloomfilter is empty.
+    bool empty ();
+    
+    void clear();
+    
+    bloomfilter& operator=(const bloomfilter&);
+    bloomfilter();
+    
+  }; // bloomfilter
+  
+  struct invalbrid_tx_data: public gtm_transaction_data
+  {
+    // Bloomfilter for read and write set.
+    bloomfilter readset;
+    bloomfilter writeset;
+    // The write_log stores the speculative writes. 
+    gtm_log *write_log;
+    size_t log_size;
+    // The hash map is used for an easy access to the speculative writes.
+    std::unordered_map<const void *, const gtm_word *> write_hash;
+    // The invalid flag and the local commit sequenz are used by specsws 
+    uint32_t local_commit_sequence;
+    // The invalid flag that is set by other transactions, if they invalidate
+    // the transaction this transaction data belongs to. The flag is enclosed
+    // in an atomic to ensure memory order when threads access it.
+    atomic<bool> invalid;
+    atomic<gtm_restart_reason> invalid_reason;
+    
+    void clear();
+    void load (gtm_transaction_data*);
+    gtm_transaction_data* save();
+    
+    invalbrid_tx_data();
+    ~invalbrid_tx_data();
+  };
+  
   struct invalbrid_mg : public method_group
   {
+    // The commit lock and the software transaction counter are static, to be
+    // easy accesable for hardware transactions. 
     static pthread_mutex_t commit_lock;
-    static std::atomic<uint32_t> commit_sequence;
+    static atomic<uint32_t> sw_cnt __attribute__ ((visibility ("default")));
+    atomic<uint32_t> commit_sequence;
+    uint32_t hw_post_commit;
     
-    // Initializes the method group, before first use.
-    void init();
+    // A pointer to the tx_data of the transaction, that holds the commit lock.
+    atomic<gtm_thread*> committing_tx;
+
     // Decides which TM method should be used for the transaction, sets up the
     // appropiate meta data.
     uint32_t begin(uint32_t, const gtm_jmpbuf *);
@@ -58,6 +109,8 @@ namespace GTM HIDDEN {
     // Restart routine for any transaction of this method_group. The restart 
     // resaon indicates what happend.
     void restart(gtm_restart_reason rr);
+    
+    invalbrid_mg();
       
   }; // invalbrid_mg
   

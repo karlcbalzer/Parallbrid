@@ -35,9 +35,9 @@ namespace GTM HIDDEN {
 // memcpy in terms of stack frames, so just ensure that for now using the
 // noinline.
 void __attribute__((noinline))
-gtm_undolog::rollback (gtm_thread* tx, size_t until_size)
+gtm_log::commit (gtm_thread* tx, size_t until_size)
 {
-  size_t i, n = undolog.size();
+  size_t i, n = log_data.size();
   void *top = mask_stack_top(tx);
   void *bot = mask_stack_bottom(tx);
 
@@ -45,8 +45,8 @@ gtm_undolog::rollback (gtm_thread* tx, size_t until_size)
     {
       for (i = n; i-- > until_size; )
 	{
-          void *ptr = (void *) undolog[i--];
-          size_t len = undolog[i];
+          void *ptr = (void *) log_data[i--];
+          size_t len = log_data[i];
           size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
           i -= words;
           // Filter out any updates that overlap the libitm stack.  We don't
@@ -59,9 +59,9 @@ gtm_undolog::rollback (gtm_thread* tx, size_t until_size)
           // and still have good performance, so that we can remove the hack
           // in mask_stack_bottom()?
           if (likely(ptr > top || (uint8_t*)ptr + len <= bot))
-            __builtin_memcpy (ptr, &undolog[i], len);
+            __builtin_memcpy (ptr, &log_data[i], len);
 	}
-      undolog.set_size(until_size);
+      log_data.set_size(until_size);
     }
 }
 

@@ -60,7 +60,8 @@ libitm_la_SOURCES = \
 	aatree.cc alloc.cc alloc_c.cc alloc_cpp.cc barrier.cc beginend.cc \
 	clone.cc eh_cpp.cc local.cc \
 	query.cc useraction.cc util.cc \
-	sjlj.S tls.cc invalbrid-mg.cc invalbrid-m-sglsw.cc
+	sjlj.S tls.cc \
+	invalbrid-mg.cc invalbrid-m-sglsw.cc invalbrid-m-specsw.cc
 
 if ARCH_ARM
 libitm_la_SOURCES += hwcap.cc

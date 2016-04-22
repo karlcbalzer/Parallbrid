@@ -37,6 +37,7 @@
 #include <string.h>
 #include <unwind.h>
 #include "local_atomic"
+#include <pthread.h>
 
 /* Don't require libgcc_s.so for exceptions.  */
 extern void _Unwind_DeleteException (_Unwind_Exception*) __attribute__((weak));
@@ -65,6 +66,8 @@ enum gtm_restart_reason
   RESTART_NOT_READONLY,
   RESTART_CLOSED_NESTING,
   RESTART_INIT_METHOD_GROUP,
+  RESTART_UNINSTRUMENTED_CODEPATH,
+  RESTART_TRY_AGAIN,
   NUM_RESTARTS,
   NO_RESTART = NUM_RESTARTS
 };
@@ -102,12 +105,28 @@ struct gtm_alloc_action
 
 struct gtm_thread;
 
-// A transaction checkpoint: data that has to saved and restored when doing
+// Container for transaction specific data, like read and write set.
+// This object only exsist 1 time per thread and is destroyed on gtm_threads
+// destruction. When a transaction commits, this container has to be resetted.
+struct gtm_transaction_data 
+{
+  virtual ~gtm_transaction_data() {};
+  // Should return a pointer to an immutable transaction data object, which can
+  // be used to restore the transaction data at a nested checkpoint. Be carefull
+  // when using new in this method, because you then have to handle delete in
+  // the dispatch rollback or load routine.
+  virtual gtm_transaction_data* save() = 0;
+  // Sets this transaction datas values to the values given as an argument. 
+  virtual void load(gtm_transaction_data *) = 0;
+  // Reset prepares this container to be used by the next transaction.
+  virtual void clear() = 0; 
+};
+
+// A transaction checkpoint: data that has to be saved and restored when doing
 // closed nesting.
 struct gtm_transaction_cp
 {
   gtm_jmpbuf jb;
-  size_t undolog_size;
   aa_tree<uintptr_t, gtm_alloc_action> alloc_actions;
   size_t user_actions_size;
   _ITM_transactionId_t id;
@@ -120,32 +139,66 @@ struct gtm_transaction_cp
   // Nesting level of this checkpoint (1 means that this is a checkpoint of
   // the outermost transaction).
   uint32_t nesting;
+  gtm_transaction_data *tx_data;
 
   void save(gtm_thread* tx);
   void commit(gtm_thread* tx);
 };
 
-// An undo log for writes.
-struct gtm_undolog
+// A multible reader single writer lock.
+struct rw_atomic_lock
 {
-  vector<gtm_word> undolog;
+  atomic<int32_t> writer;
+  atomic<int32_t> readers;
+  
+  void writer_lock();
+  void writer_unlock();
+  void reader_lock();
+  void reader_unlock();
+  
+  rw_atomic_lock();
+};
 
-  // Log the previous value at a certain address.
+// A log for writes. It can be used as a write buffer for lazy version
+// management. 
+struct gtm_log
+{
+  vector<gtm_word> log_data;
+
+  // Log the value at a certain address.
   // The easiest way to inline this is to just define this here.
-  void log(const void *ptr, size_t len)
+  gtm_word* log(const void *ptr, size_t len)
   {
     size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
-    gtm_word *undo = undolog.push(words + 2);
-    memcpy(undo, ptr, len);
-    undo[words] = len;
-    undo[words + 1] = (gtm_word) ptr;
+    gtm_word *entry = log_data.push(words + 2);
+    memcpy(entry, ptr, len);
+    entry[words] = len;
+    entry[words + 1] = (gtm_word) ptr;
+    return entry;
   }
 
-  void commit () { undolog.clear(); }
-  size_t size() const { return undolog.size(); }
-
+  size_t size() const { return log_data.size(); }
+  
   // In local.cc
-  void rollback (gtm_thread* tx, size_t until_size = 0);
+  // Commits the last log entrys until 'until_size' to memory. For a full commit
+  // of all entrys until_size must be zero. 
+  void commit (gtm_thread* tx, size_t until_size = 0);
+  // Sets the log size to 'until_size' thus removing the last entrys.
+  void rollback (size_t until_size = 0) {log_data.set_size(until_size);}
+};
+
+// An undolog for the ITM logging functions. Can also be used as an undolog for
+// eager version managament transactions. Implemented with the gtm_log an commit
+// and rollback switched.
+struct gtm_undolog
+{
+  gtm_log undo_log;
+  
+  gtm_word* log(const void *ptr, size_t len) { return undo_log.log(ptr, len); }
+  size_t size() const { return undo_log.size(); }
+  void commit () { undo_log.rollback(); }
+  void rollback(gtm_thread* tx, size_t until_size = 0) 
+    { undo_log.commit(tx, until_size); } 
 };
 
 // Contains all thread-specific data required by the entire library.
@@ -174,11 +227,11 @@ struct gtm_thread
   // This field *must* be at the beginning of the transaction.
   gtm_jmpbuf jb;
 
-  // Data used by local.c for the undo log for both local and shared memory.
-  gtm_undolog undolog;
-
   // Data used by alloc.c for the malloc/free undo log.
   aa_tree<uintptr_t, gtm_alloc_action> alloc_actions;
+  
+  // Undo log, used by th ITM logging functions.
+  gtm_undolog undolog;
 
   // Data used by useraction.c for the user-defined commit/abort handlers.
   vector<user_action> user_actions;
@@ -197,11 +250,15 @@ struct gtm_thread
   // Can be reset only when restarting the outermost transaction.
   static const uint32_t STATE_SERIAL		= 0x0001;
   // Set if the serial-irrevocable dispatch table is installed.
-  // Implies that no logging is being done, and abort is not possible.
+  // Implies that abort is not possible.
   // Can be reset only when restarting the outermost transaction.
   static const uint32_t STATE_IRREVOCABLE	= 0x0002;
+  // Set if this is a speculative software transaction.
+  static const uint32_t STATE_SOFTWARE 		= 0x0004;
+  // Set if this is a hardware transaction.
+  static const uint32_t STATE_HARDWARE 		= 0x0008;
 
-  // A bitmask of the above.
+  // A bitmask of the above or -1 if this is an active non-serial transaction.
   uint32_t state;
 
   // In order to reduce cacheline contention on global_tid during
@@ -231,13 +288,22 @@ struct gtm_thread
   // *** The shared part of gtm_thread starts here. ***
   // Shared state is on separate cachelines to avoid false sharing with
   // thread-local parts of gtm_thread.
+  
+  // This thread lock is for creating, destroying and iterating over threads. 
+  static rw_atomic_lock thread_lock;
 
   // Points to the next thread in the list of all threads.
   gtm_thread *next_thread __attribute__((__aligned__(HW_CACHELINE_SIZE)));
 
+  // The shared_data_lock can be used to protect the shared data.
+  rw_atomic_lock shared_data_lock;
   // If this transaction is inactive, shared_state is ~0. Otherwise, this is
   // an active or serial transaction.
   atomic<gtm_word> shared_state;
+  
+  // The transaction specific data, used by the dispatches, implemented in the
+  // method groups.
+  gtm_transaction_data *tx_data;
 
   // The head of the list of all threads' transactions.
   static gtm_thread *list_of_threads;
@@ -254,6 +320,9 @@ struct gtm_thread
     alloc_actions.erase((uintptr_t) ptr);
   }
 
+  // In beginend.cc
+  void rollback (gtm_transaction_cp *cp = 0, bool aborting = false);
+  
   gtm_thread();
   ~gtm_thread();
 
@@ -305,6 +374,7 @@ extern void set_default_method_group();
 
 // Methods that are used by the method groups.
 extern abi_dispatch *dispatch_invalbrid_sglsw();
+extern abi_dispatch *dispatch_invalbrid_specsw();
 
 // The method groups that can be uses
 extern method_group *method_group_invalbrid();

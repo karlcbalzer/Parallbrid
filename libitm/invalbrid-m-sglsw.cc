@@ -32,7 +32,7 @@ namespace {
 class sglsw_dispatch : public abi_dispatch
 {
 public:
-  sglsw_dispatch(): abi_dispatch(method_group_invalbrid()) { }
+  sglsw_dispatch(): abi_dispatch(method_group_invalbrid(), true, false) { }
 
 protected:
   template <typename V> static V load(const V* addr, ls_modifier mod)
@@ -63,21 +63,40 @@ public:
   CREATE_DISPATCH_METHODS(virtual, )
   CREATE_DISPATCH_METHODS_MEM()
   
-  void begin() 
+  void 
+  begin() 
   { 
     gtm_thread *tx;
+    invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
     pthread_mutex_lock(&invalbrid_mg::commit_lock);
+    mg->commit_sequence++;
     tx = gtm_thr();
     tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE; 
+    tx->shared_data_lock.writer_lock();
+    tx->shared_state.store(gtm_thread::STATE_SERIAL 
+			  |gtm_thread::STATE_IRREVOCABLE);
+    tx->shared_data_lock.writer_unlock();
      
   }
-  
-  gtm_restart_reason validate() { return NO_RESTART; }
-  
-  gtm_restart_reason trycommit() 
+    
+  gtm_restart_reason 
+  trycommit() 
   {
+    gtm_thread *tx = gtm_thr();
+    invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
+    mg->commit_sequence++;
     pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+    tx->state = 0;
+    tx->shared_data_lock.writer_lock();
+    tx->shared_state.store(0);
+    tx->shared_data_lock.writer_unlock();
     return NO_RESTART; 
+  }
+  
+  void 
+  rollback(gtm_transaction_cp *cp)
+  {
+    GTM_fatal("Invalbrid-SglSW cannot rollback, because it's serial irrevocable");
   }
   
 }; // sglsw_dispatch

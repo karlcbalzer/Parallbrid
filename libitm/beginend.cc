@@ -24,21 +24,20 @@
 
 #include "libitm_i.h"
 #include <ctype.h>
-#include <pthread.h>
 #include <iostream>
 
 
 using namespace GTM;
 
-// Mutex for thread creation.
-static pthread_mutex_t thr_mutex = PTHREAD_MUTEX_INITIALIZER;
 // Provides a on-thread-exit callback used to release per-thread data.
 static pthread_key_t thr_release_key;
 static pthread_once_t thr_release_once = PTHREAD_ONCE_INIT;
 
+
 // Thread linkage initialization
 gtm_thread *GTM::gtm_thread::list_of_threads = 0;
 unsigned GTM::gtm_thread::number_of_threads = 0;
+rw_atomic_lock GTM::gtm_thread::thread_lock;
 
 
 method_group *GTM::method_group::method_gr = 0;
@@ -130,7 +129,7 @@ GTM::gtm_thread::~gtm_thread()
     GTM_fatal("Thread exit while a transaction is still active.");
 
   // Deregister this transaction.
-  pthread_mutex_lock(&thr_mutex);
+  thread_lock.writer_lock();
   gtm_thread **prev = &list_of_threads;
   for (; *prev; prev = &(*prev)->next_thread)
     {
@@ -141,17 +140,46 @@ GTM::gtm_thread::~gtm_thread()
 	}
     }
   number_of_threads--;
-  pthread_mutex_unlock(&thr_mutex);
+  // Taking the shared_data_lock should be unnecessary, because every other
+  // thread that trys to access tx_data should acquire the thread_lock as a
+  // reader. But since thread destruction is hopefully uncommon, this shouldn't
+  // provide a big overhead.
+  shared_data_lock.writer_lock();
+  if (tx_data != 0) 
+    delete tx_data;
+  shared_data_lock.writer_unlock();
+  
+  uint32_t restarts = 0;
+  for (int i=0; i<NUM_RESTARTS; i++) 
+  {
+    restarts += restart_reason[i];
+    if (restart_reason[i] != 0) std::cout << i<<"\n";
+  }
+  std::cout << "RESTART_REALLOCATE: " << restart_reason[RESTART_REALLOCATE] << "\n"
+	    << "RESTART_LOCKED_READ: " << restart_reason[RESTART_LOCKED_READ] << "\n"
+	    << "RESTART_LOCKED_WRITE: " << restart_reason[RESTART_LOCKED_WRITE] << "\n"
+	    << "RESTART_VALIDATE_READ: " << restart_reason[RESTART_VALIDATE_READ] << "\n"
+	    << "RESTART_VALIDATE_WRITE: " << restart_reason[RESTART_VALIDATE_WRITE] << "\n"
+	    << "RESTART_VALIDATE_COMMIT: " << restart_reason[RESTART_VALIDATE_COMMIT] << "\n"
+	    << "RESTART_SERIAL_IRR: " << restart_reason[RESTART_SERIAL_IRR] << "\n"
+	    << "RESTART_NOT_READONLY: " << restart_reason[RESTART_NOT_READONLY] << "\n"
+	    << "RESTART_CLOSED_NESTING: " << restart_reason[RESTART_CLOSED_NESTING] << "\n"
+	    << "RESTART_INIT_METHOD_GROUP: " << restart_reason[RESTART_INIT_METHOD_GROUP] << "\n"
+	    << "RESTART_UNINSTRUMENTED_CODEPATH: " << restart_reason[RESTART_UNINSTRUMENTED_CODEPATH] << "\n"
+	    << "RESTART_TRY_AGAIN: " << restart_reason[RESTART_TRY_AGAIN] << "\n"
+	    << "total: "<< restarts << "\n";
+  
+  thread_lock.writer_unlock();
 }
 
 GTM::gtm_thread::gtm_thread ()
 {
   // Register this transaction with the list of all threads' transactions.
-  pthread_mutex_lock(&thr_mutex);
+  thread_lock.writer_lock();
   next_thread = list_of_threads;
   list_of_threads = this;
   number_of_threads++;
-  pthread_mutex_unlock(&thr_mutex);
+  thread_lock.writer_unlock();
 
   init_cpp_exceptions ();
 
@@ -163,6 +191,150 @@ GTM::gtm_thread::gtm_thread ()
     GTM_fatal("Setting thread release TLS key failed.");
 }
 
+void
+GTM::gtm_thread::rollback (gtm_transaction_cp *cp, bool aborting)
+{
+  // Perform dispatch-specific rollback. If there is checkpointed tx_data,
+  // the dispatch is responsible for restoring that.
+  abi_disp()->rollback(cp);
+
+  // Roll back all actions that are supposed to happen around the transaction.
+  rollback_user_actions (cp ? cp->user_actions_size : 0);
+  commit_allocations (true, (cp ? &cp->alloc_actions : 0));
+  revert_cpp_exceptions (cp);
+
+  if (cp)
+    {
+      // We do not yet handle restarts of nested transactions. To do that, we
+      // would have to restore some state (jb, id, prop, nesting) not to the
+      // checkpoint but to the transaction that was started from this
+      // checkpoint (e.g., nesting = cp->nesting + 1);
+      assert(aborting);
+      // Roll back the rest of the state to the checkpoint.
+      jb = cp->jb;
+      id = cp->id;
+      prop = cp->prop;
+      assert(cp->disp == abi_disp());
+      memcpy(&alloc_actions, &cp->alloc_actions, sizeof(alloc_actions));
+      nesting = cp->nesting;
+      
+    }
+  else
+    {
+      // Roll back to the outermost transaction.
+      // Restore the jump buffer and transaction properties, which we will
+      // need for the longjmp used to restart or abort the transaction.
+      if (parent_txns.size() > 0)
+	{
+	  jb = parent_txns[0].jb;
+	  id = parent_txns[0].id;
+	  prop = parent_txns[0].prop;
+	}
+      // Reset the transaction. Do not reset this->state, which is handled by
+      // the callers. Note that if we are not aborting, we reset the
+      // transaction to the point after having executed begin_transaction
+      // (we will return from it), so the nesting level must be one, not zero.
+      nesting = (aborting ? 0 : 1);
+      if (aborting)
+	{
+	  cxa_catch_count = 0;
+	  restart_total = 0;
+	}
+      parent_txns.clear();
+    }
+
+  if (this->eh_in_flight)
+    {
+      _Unwind_DeleteException ((_Unwind_Exception *) this->eh_in_flight);
+      this->eh_in_flight = NULL;
+    }
+}
+
+void
+GTM::gtm_transaction_cp::save(gtm_thread* tx)
+{
+  // Save everything that we might have to restore on restarts or aborts.
+  jb = tx->jb;
+  memcpy(&alloc_actions, &tx->alloc_actions, sizeof(alloc_actions));
+  user_actions_size = tx->user_actions.size();
+  id = tx->id;
+  prop = tx->prop;
+  cxa_catch_count = tx->cxa_catch_count;
+  cxa_uncaught_count = tx->cxa_uncaught_count;
+  disp = abi_disp();
+  nesting = tx->nesting;
+  // The save() method returns a pointer to a tx_data object, that can be used
+  // to restore tx_data.
+  if (tx->tx_data != NULL)
+    tx_data = tx->tx_data->save();
+}
+
+void
+GTM::gtm_transaction_cp::commit(gtm_thread* tx)
+{
+  // Restore state that is not persistent across commits. Exception handling,
+  // information, nesting level, and any logs do not need to be restored on
+  // commits of nested transactions. Allocation actions must be committed
+  // before committing the snapshot.
+  tx->jb = jb;
+  memcpy(&tx->alloc_actions, &alloc_actions, sizeof(alloc_actions));
+  tx->id = id;
+  tx->prop = prop;
+}
+
+// RW atomic lock implementation.
+void
+rw_atomic_lock::writer_lock()
+{
+  writer++;
+  int32_t r = 0;
+  while (readers.compare_exchange_strong(r, -1))
+  { 
+    r = 0;
+    cpu_relax(); // TODO Improve with pthread condition or futex
+  }
+  // We locked readers out by setting readers to -1. 
+}
+
+void
+rw_atomic_lock::writer_unlock()
+{
+  readers++;
+  writer--;
+}
+
+void
+rw_atomic_lock::reader_lock()
+{
+  while (writer.load() != 0) // TODO Improve with pthread condition or futex
+    cpu_relax(); 
+  int32_t r = readers.load();
+  bool succ;
+  do
+    {
+      if (r == -1)
+	{	
+	  // There is still a writer present.
+	  cpu_relax(); 
+	  r = readers.load();
+	  continue; // TODO Improve with pthread condition or futex
+	}
+      succ = readers.compare_exchange_strong(r,r+1);
+    }
+  while (!succ); // TODO Improve with pthread condition or futex
+}
+
+void
+rw_atomic_lock::reader_unlock()
+{
+  readers--;
+}
+
+rw_atomic_lock::rw_atomic_lock()
+{
+  writer.store(0);
+  readers.store(0);
+}
 
 namespace {
 // Mutex for setting the default method group.
@@ -211,10 +383,9 @@ void
 GTM::set_default_method_group()
 {
   pthread_mutex_lock(&mg_mutex);
-  if(method_group::method_gr == 0)
+  if(method_group::method_gr == NULL)
   {
     method_group *mg = parse_default_method_group();
-    mg->init();
     method_group::method_gr = mg;
   }
   pthread_mutex_unlock(&mg_mutex);

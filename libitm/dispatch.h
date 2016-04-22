@@ -25,7 +25,7 @@
 #ifndef DISPATCH_H
 #define DISPATCH_H 1
 
-#include "libitm.h"
+#include "libitm_i.h"
 #include "common.h"
 
 #ifdef __USER_LABEL_PREFIX__
@@ -245,6 +245,7 @@ void ITM_REGPARM _ITM_memset##WRITE(void *dst, int c, size_t size) \
 namespace GTM HIDDEN {
 
 struct gtm_jmpbuf;
+struct gtm_transaction_cp;
 
 // This is the base interface that all TM method groups have to implement.
 // The method group is the common structure for all TM methods that could run
@@ -264,8 +265,6 @@ public:
   // the begin function of the method_group referenced in method_gr.
   static uint32_t begin_transaction(uint32_t, const gtm_jmpbuf *)
     __asm__(UPFX "GTM_begin_transaction") ITM_REGPARM;
-  // Initializes the method group, before first use.
-  virtual void init() = 0;
   // Decides which TM method should be used for the transaction, sets up the
   // appropiate meta data.
   virtual uint32_t begin(uint32_t, const gtm_jmpbuf *) = 0;
@@ -286,7 +285,7 @@ public:
   virtual void release_serial_access() = 0;
   // Restart routine for any transaction of this method_group. The restart 
   // resaon indicates what happend.
-  virtual void restart(gtm_restart_reason rr);
+  virtual void restart(gtm_restart_reason rr) = 0;
 };
 
 
@@ -305,9 +304,17 @@ public:
   static bool memmove_overlap_check(void *dst, const void *src, size_t size,
       ls_modifier dst_mod, ls_modifier src_mod);
   
-  virtual void begin();
-  virtual gtm_restart_reason validate();
-  virtual gtm_restart_reason trycommit();
+  virtual void begin() = 0;
+  virtual gtm_restart_reason trycommit() = 0;
+  virtual void rollback(gtm_transaction_cp*) = 0;
+  bool can_run_uninstrumented_code() const
+  {
+    return m_can_run_uninstrumented_code;
+  }
+  bool can_restart() const
+  {
+    return m_can_restart;
+  }
 
   // Creates the ABI dispatch methods for loads and stores.
   CREATE_DISPATCH_METHODS_PV(virtual, )
@@ -316,7 +323,11 @@ public:
 
 protected:
   method_group* const m_method_group;
-  abi_dispatch(method_group* mg) : m_method_group(mg) { }
+  const bool m_can_run_uninstrumented_code;
+  const bool m_can_restart;
+  abi_dispatch(method_group* mg, bool uninstrumented, bool restartable) : 
+    m_method_group(mg), m_can_run_uninstrumented_code(uninstrumented), 
+    m_can_restart(restartable){ }
 };
 
 } // GTM namespace
