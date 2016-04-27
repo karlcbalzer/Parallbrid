@@ -65,6 +65,15 @@ gtm_log::commit (gtm_thread* tx, size_t until_size)
     }
 }
 
+void
+gtm_log::rollback (size_t until_size)
+{
+  if (until_size)
+    log_data.set_size(until_size);
+  else
+    log_data.clear();
+}
+
 void ITM_REGPARM
 GTM_LB (const void *ptr, size_t len)
 {

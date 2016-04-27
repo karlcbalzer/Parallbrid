@@ -25,6 +25,7 @@
 #include "libitm_i.h"
 #include <ctype.h>
 #include <iostream>
+#include "invalbrid-mg.h"
 
 
 using namespace GTM;
@@ -145,29 +146,30 @@ GTM::gtm_thread::~gtm_thread()
   // reader. But since thread destruction is hopefully uncommon, this shouldn't
   // provide a big overhead.
   shared_data_lock.writer_lock();
-  if (tx_data != 0) 
-    delete tx_data;
+  gtm_transaction_data* data = tx_data.load();
+  if (data != 0) 
+    delete data;
   shared_data_lock.writer_unlock();
   
-  uint32_t restarts = 0;
-  for (int i=0; i<NUM_RESTARTS; i++) 
-  {
-    restarts += restart_reason[i];
-    if (restart_reason[i] != 0) std::cout << i<<"\n";
-  }
-  std::cout << "RESTART_REALLOCATE: " << restart_reason[RESTART_REALLOCATE] << "\n"
-	    << "RESTART_LOCKED_READ: " << restart_reason[RESTART_LOCKED_READ] << "\n"
-	    << "RESTART_LOCKED_WRITE: " << restart_reason[RESTART_LOCKED_WRITE] << "\n"
-	    << "RESTART_VALIDATE_READ: " << restart_reason[RESTART_VALIDATE_READ] << "\n"
-	    << "RESTART_VALIDATE_WRITE: " << restart_reason[RESTART_VALIDATE_WRITE] << "\n"
-	    << "RESTART_VALIDATE_COMMIT: " << restart_reason[RESTART_VALIDATE_COMMIT] << "\n"
-	    << "RESTART_SERIAL_IRR: " << restart_reason[RESTART_SERIAL_IRR] << "\n"
-	    << "RESTART_NOT_READONLY: " << restart_reason[RESTART_NOT_READONLY] << "\n"
-	    << "RESTART_CLOSED_NESTING: " << restart_reason[RESTART_CLOSED_NESTING] << "\n"
-	    << "RESTART_INIT_METHOD_GROUP: " << restart_reason[RESTART_INIT_METHOD_GROUP] << "\n"
-	    << "RESTART_UNINSTRUMENTED_CODEPATH: " << restart_reason[RESTART_UNINSTRUMENTED_CODEPATH] << "\n"
-	    << "RESTART_TRY_AGAIN: " << restart_reason[RESTART_TRY_AGAIN] << "\n"
-	    << "total: "<< restarts << "\n";
+  #ifdef DEBUG_INVALBRID
+    uint32_t restarts = 0;
+    for (int i=0; i<NUM_RESTARTS; i++) restarts += restart_reason[i];
+    std::cout << "RESTART_REALLOCATE: " << restart_reason[RESTART_REALLOCATE] << "\n"
+	      << "RESTART_LOCKED_READ: " << restart_reason[RESTART_LOCKED_READ] << "\n"
+	      << "RESTART_LOCKED_WRITE: " << restart_reason[RESTART_LOCKED_WRITE] << "\n"
+	      << "RESTART_VALIDATE_READ: " << restart_reason[RESTART_VALIDATE_READ] << "\n"
+	      << "RESTART_VALIDATE_WRITE: " << restart_reason[RESTART_VALIDATE_WRITE] << "\n"
+	      << "RESTART_VALIDATE_COMMIT: " << restart_reason[RESTART_VALIDATE_COMMIT] << "\n"
+	      << "RESTART_SERIAL_IRR: " << restart_reason[RESTART_SERIAL_IRR] << "\n"
+	      << "RESTART_NOT_READONLY: " << restart_reason[RESTART_NOT_READONLY] << "\n"
+	      << "RESTART_CLOSED_NESTING: " << restart_reason[RESTART_CLOSED_NESTING] << "\n"
+	      << "RESTART_INIT_METHOD_GROUP: " << restart_reason[RESTART_INIT_METHOD_GROUP] << "\n"
+	      << "RESTART_UNINSTRUMENTED_CODEPATH: " << restart_reason[RESTART_UNINSTRUMENTED_CODEPATH] << "\n"
+	      << "RESTART_TRY_AGAIN: " << restart_reason[RESTART_TRY_AGAIN] << "\n"
+	      << "total: "<< restarts << "\n";
+    std::cout << "SpecSW started:" << tx_types_started[SPEC_SW] << " SpecSW commited:" << tx_types_commited[SPEC_SW] << "\n";
+    std::cout << "SglSW started:" << tx_types_started[SGL_SW] << " SglSW commited:" << tx_types_commited[SGL_SW] << "\n";
+  #endif
   
   thread_lock.writer_unlock();
 }
@@ -265,8 +267,9 @@ GTM::gtm_transaction_cp::save(gtm_thread* tx)
   nesting = tx->nesting;
   // The save() method returns a pointer to a tx_data object, that can be used
   // to restore tx_data.
-  if (tx->tx_data != NULL)
-    tx_data = tx->tx_data->save();
+  gtm_transaction_data *data = tx->tx_data.load();
+  if (data != NULL)
+    tx_data = data->save();
 }
 
 void
@@ -288,12 +291,12 @@ rw_atomic_lock::writer_lock()
 {
   writer++;
   int32_t r = 0;
-  while (readers.compare_exchange_strong(r, -1))
+  while (!readers.compare_exchange_strong(r, -1))
   { 
     r = 0;
     cpu_relax(); // TODO Improve with pthread condition or futex
   }
-  // We locked readers out by setting readers to -1. 
+  // We locked readers and other writers out by setting readers to -1. 
 }
 
 void
@@ -309,7 +312,7 @@ rw_atomic_lock::reader_lock()
   while (writer.load() != 0) // TODO Improve with pthread condition or futex
     cpu_relax(); 
   int32_t r = readers.load();
-  bool succ;
+  bool succ = false;
   do
     {
       if (r == -1)
@@ -346,7 +349,7 @@ static method_group*
 parse_default_method_group()
 {
   const char *env = getenv("ITM_DEFAULT_METHOD_GROUP");
-  method_group* meth_gr = 0;
+  method_group *meth_gr = 0;
   if (env == NULL) 
     {
       return GTM::method_group_invalbrid();

@@ -32,12 +32,12 @@
 namespace GTM HIDDEN {
   struct bloomfilter
   {
-    uint32_t bf[32];
+    atomic<uint32_t> bf[32] = {};
     
     // Add an address to the bloomfilter.
     void add_address (void *);
     // Adds a bloomfilter to this bloomfilter.
-    void merge (const bloomfilter *);
+    void set (const bloomfilter *);
     // Check for an intersection between the bloomfilters.
     bool intersects (const bloomfilter *);
     // Returns true if the bloomfilter is empty.
@@ -45,16 +45,13 @@ namespace GTM HIDDEN {
     
     void clear();
     
-    bloomfilter& operator=(const bloomfilter&);
-    bloomfilter();
-    
   }; // bloomfilter
   
   struct invalbrid_tx_data: public gtm_transaction_data
   {
     // Bloomfilter for read and write set.
-    bloomfilter readset;
-    bloomfilter writeset;
+    atomic<bloomfilter*> readset;
+    atomic<bloomfilter*> writeset;
     // The write_log stores the speculative writes. 
     gtm_log *write_log;
     size_t log_size;
@@ -87,7 +84,7 @@ namespace GTM HIDDEN {
     
     // A pointer to the tx_data of the transaction, that holds the commit lock.
     atomic<gtm_thread*> committing_tx;
-
+    
     // Decides which TM method should be used for the transaction, sets up the
     // appropiate meta data.
     uint32_t begin(uint32_t, const gtm_jmpbuf *);

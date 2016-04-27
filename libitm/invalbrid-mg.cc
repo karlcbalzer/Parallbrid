@@ -73,9 +73,9 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 	  // If there is no instrumented codepath and disp can not run 
 	  // uninstrumented, we need to restart with a dispatch that can run 
 	  // uninstrumented.
-	  if (!((prop & pr_instrumentedCode) && 
-		abi_disp()->can_run_uninstrumented_code()))
-	    restart(RESTART_UNINSTRUMENTED_CODEPATH);
+	  if (!(prop & pr_instrumentedCode)) 
+	    if (!abi_disp()->can_run_uninstrumented_code())
+	      restart(RESTART_UNINSTRUMENTED_CODEPATH);
 	  // This is a nested transaction that will be flattend.
 	  tx->nesting++;
 	  return ((prop & pr_uninstrumentedCode) && 
@@ -353,32 +353,23 @@ bloomfilter::add_address(void *ptr)
 }
 
 void
-bloomfilter::merge(const bloomfilter* bfilter)
+bloomfilter::set(const bloomfilter* bfilter)
 {
-  const uint32_t *data = bfilter->bf;
+  const atomic<uint32_t> *data = bfilter->bf;
   for (int i=0; i<32; i++)
-    bf[i] |= data[i]; 
-}
-
-bloomfilter&
-bloomfilter::operator=(const bloomfilter& bfilter)
-{
-  const uint32_t *data = bfilter.bf;
-  for (int i=0; i<32; i++)
-    bf[i] = data[i];
-  return *this;
+    bf[i].store(data[i].load()); 
 }
 
 bool
 bloomfilter::intersects(const bloomfilter* bfilter)
 {
   bool result = true;
-  const uint32_t *data = bfilter->bf;
+  const atomic<uint32_t> *data = bfilter->bf;
   for (int i=0; i<4; i++)
   {
     uint32_t block_result = 0;
     for (int j=0; j<8; j++)
-      block_result |= bf[i*8+j] & data[i*8+j];
+      block_result |= bf[i*8+j].load() & data[i*8+j].load();
     if (block_result == 0)
       result = false;
   }
@@ -390,20 +381,16 @@ bloomfilter::empty ()
 {
   bool ret = true;
   for (int i=0; i<32; i++)
-    if (bf[i] == 0) ret = false;
+    if (bf[i].load() == 0) ret = false;
   return ret;
 }
 
 void
 bloomfilter::clear()
 {
-  for (int i=0; i<32; i++) bf[i] = 0;
+  for (int i=0; i<32; i++) bf[i].store(0);
 }
 
-bloomfilter::bloomfilter()
-{
-  for (int i=0; i<32; i++) bf[i] = 0;
-}
 
 //Constructor and destructor for invalbrid transactional data.
 invalbrid_tx_data::invalbrid_tx_data()
@@ -412,10 +399,14 @@ invalbrid_tx_data::invalbrid_tx_data()
   local_commit_sequence = 0;
   invalid.store(false);
   invalid_reason.store(NO_RESTART);
+  readset.store(new bloomfilter());
+  writeset.store(new bloomfilter());
 }
 
 invalbrid_tx_data::~invalbrid_tx_data()
 {
+  delete writeset.load();
+  delete readset.load();
   if (write_log != NULL)
     delete write_log;
 }
@@ -430,16 +421,26 @@ invalbrid_tx_data::clear()
   invalid.store(false);
   invalid_reason.store(NO_RESTART);
   write_hash.clear();
-  readset.clear();
-  writeset.clear();
+  bloomfilter *ws = writeset.load();
+  bloomfilter *rs = readset.load();
+  ws->clear();
+  rs->clear();
 }
 
 gtm_transaction_data*
 invalbrid_tx_data::save()
 {
-  invalbrid_tx_data* ret = new invalbrid_tx_data();
-  ret->writeset = writeset;
-  ret->readset = readset;
+  invalbrid_tx_data *ret = new invalbrid_tx_data();
+  // Get the pointers to the bloomfilters of this tx data and the checkpoint's
+  // tx data.
+  bloomfilter *ws = writeset.load();
+  bloomfilter *rs = readset.load();
+  bloomfilter *ret_ws = ret->writeset.load();
+  bloomfilter *ret_rs = ret->readset.load();
+  // Set the bloomfilters of the checkpoint to the value of this tx datas
+  // bloomfilters.
+  ret_ws->set(ws);
+  ret_rs->set(rs);
   ret->write_log = write_log;
   ret->log_size = log_size;
   ret->write_hash = write_hash;
@@ -453,12 +454,16 @@ void
 invalbrid_tx_data::load(gtm_transaction_data* tx_data)
 {
   invalbrid_tx_data *data = (invalbrid_tx_data*) tx_data;
-  readset = data->readset;
-  writeset = data->writeset;
+  bloomfilter *ws = writeset.load();
+  bloomfilter *rs = readset.load();
+  bloomfilter *others_ws = data->writeset.load();
+  bloomfilter *others_rs = data->readset.load();
+  ws->set(others_ws);
+  rs->set(others_rs);
   log_size = data->log_size;
   write_hash = data->write_hash;
   local_commit_sequence = data->local_commit_sequence;
-  // The invalid flag and reason are not restored to prevent lost updates.
+  // The invalid flag and reason are not restored to prevent lost updates on them.
   // The data object is no longer needed after the containing information has
   // been loaded, so it's deleted or we would have a memory leak.
   delete data;

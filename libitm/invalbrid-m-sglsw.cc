@@ -76,7 +76,9 @@ public:
     tx->shared_state.store(gtm_thread::STATE_SERIAL 
 			  |gtm_thread::STATE_IRREVOCABLE);
     tx->shared_data_lock.writer_unlock();
-     
+    #ifdef DEBUG_INVALBRID
+      tx->tx_types_started[SGL_SW]++;
+    #endif 
   }
     
   gtm_restart_reason 
@@ -90,6 +92,9 @@ public:
     tx->shared_data_lock.writer_lock();
     tx->shared_state.store(0);
     tx->shared_data_lock.writer_unlock();
+    #ifdef DEBUG_INVALBRID
+      tx->tx_types_commited[SGL_SW]++;
+    #endif 
     return NO_RESTART; 
   }
   

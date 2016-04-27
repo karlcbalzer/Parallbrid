@@ -29,6 +29,8 @@
 #ifndef LIBITM_I_H
 #define LIBITM_I_H 1
 
+#define DEBUG_INVALBRID 1
+
 #include "libitm.h"
 #include "config.h"
 
@@ -71,6 +73,15 @@ enum gtm_restart_reason
   NUM_RESTARTS,
   NO_RESTART = NUM_RESTARTS
 };
+
+#ifdef DEBUG_INVALBRID
+enum invalbrid_tx_types
+{
+  SPEC_SW,
+  SGL_SW,
+  NUM_TYPES
+};
+#endif
 
 } // namespace GTM
 
@@ -167,13 +178,13 @@ struct gtm_log
 
   // Log the value at a certain address.
   // The easiest way to inline this is to just define this here.
-  gtm_word* log(const void *ptr, size_t len)
+  gtm_word* log(const void *addr_ptr, const void *value_ptr, size_t len)
   {
     size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
     gtm_word *entry = log_data.push(words + 2);
-    memcpy(entry, ptr, len);
+    memcpy(entry, value_ptr, len);
     entry[words] = len;
-    entry[words + 1] = (gtm_word) ptr;
+    entry[words + 1] = (gtm_word) addr_ptr;
     return entry;
   }
 
@@ -184,17 +195,17 @@ struct gtm_log
   // of all entrys until_size must be zero. 
   void commit (gtm_thread* tx, size_t until_size = 0);
   // Sets the log size to 'until_size' thus removing the last entrys.
-  void rollback (size_t until_size = 0) {log_data.set_size(until_size);}
+  void rollback (size_t until_size = 0);
 };
 
 // An undolog for the ITM logging functions. Can also be used as an undolog for
-// eager version managament transactions. Implemented with the gtm_log an commit
+// eager versionmanagament transactions. Implemented with the gtm_log and commit
 // and rollback switched.
 struct gtm_undolog
 {
   gtm_log undo_log;
   
-  gtm_word* log(const void *ptr, size_t len) { return undo_log.log(ptr, len); }
+  gtm_word* log(const void *ptr, size_t len) { return undo_log.log(ptr, ptr, len); }
   size_t size() const { return undo_log.size(); }
   void commit () { undo_log.rollback(); }
   void rollback(gtm_thread* tx, size_t until_size = 0) 
@@ -253,7 +264,7 @@ struct gtm_thread
   // Implies that abort is not possible.
   // Can be reset only when restarting the outermost transaction.
   static const uint32_t STATE_IRREVOCABLE	= 0x0002;
-  // Set if this is a speculative software transaction.
+  // Set if this is a software transaction with transactional data.
   static const uint32_t STATE_SOFTWARE 		= 0x0004;
   // Set if this is a hardware transaction.
   static const uint32_t STATE_HARDWARE 		= 0x0008;
@@ -277,14 +288,19 @@ struct gtm_thread
   // Checkpoints for closed nesting.
   vector<gtm_transaction_cp> parent_txns;
 
-  // Data used by retry.c for deciding what STM implementation should
-  // be used for the next iteration of the transaction.
+
   // Only restart_total is reset to zero when the transaction commits, the
   // other counters are total values for all previously executed transactions.
-  // restart_total is also used by the HTM fastpath in a different way.
   uint32_t restart_reason[NUM_RESTARTS];
   uint32_t restart_total;
-
+  
+  #ifdef DEBUG_INVALBRID
+    // A counter that records transaction types started.
+    uint32_t tx_types_started[NUM_TYPES];
+    // A counter that records transaction types commited.
+    uint32_t tx_types_commited[NUM_TYPES];
+  #endif
+  
   // *** The shared part of gtm_thread starts here. ***
   // Shared state is on separate cachelines to avoid false sharing with
   // thread-local parts of gtm_thread.
@@ -293,7 +309,7 @@ struct gtm_thread
   static rw_atomic_lock thread_lock;
 
   // Points to the next thread in the list of all threads.
-  gtm_thread *next_thread __attribute__((__aligned__(HW_CACHELINE_SIZE)));
+  gtm_thread* next_thread __attribute__((__aligned__(HW_CACHELINE_SIZE)));
 
   // The shared_data_lock can be used to protect the shared data.
   rw_atomic_lock shared_data_lock;
@@ -303,10 +319,10 @@ struct gtm_thread
   
   // The transaction specific data, used by the dispatches, implemented in the
   // method groups.
-  gtm_transaction_data *tx_data;
+  atomic<gtm_transaction_data*> tx_data;
 
   // The head of the list of all threads' transactions.
-  static gtm_thread *list_of_threads;
+  static gtm_thread* list_of_threads;
   // The number of all registered threads.
   static unsigned number_of_threads;
 
