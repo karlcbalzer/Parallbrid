@@ -108,10 +108,14 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 	    }
 	  else
 	    {
-	      if (sw_cnt.load() != 0)
-		set_abi_disp(dispatch_invalbrid_specsw()); //TODO BFHW
-	      else
-		set_abi_disp(dispatch_invalbrid_specsw()); // TODO LITEHW
+	      #ifdef USE_HTM_FASTPATH
+		if (sw_cnt.load() != 0)
+		  set_abi_disp(dispatch_invalbrid_specsw()); //TODO BFHW
+		else
+		  set_abi_disp(dispatch_invalbrid_specsw()); // TODO LITEHW
+	      #else
+		  set_abi_disp(dispatch_invalbrid_specsw());
+	      #endif
 	    }
 	}
       else
