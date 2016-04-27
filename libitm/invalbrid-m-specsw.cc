@@ -136,7 +136,7 @@ protected:
     std::unordered_map<const void*, const gtm_word*>::const_iterator found =
       spec_data->write_hash.find((void*) addr);
     if (found != spec_data->write_hash.end())
-      return *(found->second);
+      return *(&found->second[2]);
     // If there was no previous write, the addr will be added to the readset.
     bloomfilter *bf = spec_data->readset.load();
     bf->add_address((void*) addr);

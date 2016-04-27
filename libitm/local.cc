@@ -35,7 +35,7 @@ namespace GTM HIDDEN {
 // memcpy in terms of stack frames, so just ensure that for now using the
 // noinline.
 void __attribute__((noinline))
-gtm_log::commit (gtm_thread* tx, size_t until_size)
+gtm_log::commit (gtm_thread* tx)
 {
   size_t i, n = log_data.size();
   void *top = mask_stack_top(tx);
@@ -43,10 +43,42 @@ gtm_log::commit (gtm_thread* tx, size_t until_size)
 
   if (n > 0)
     {
+      for (i = 0; i < n; )
+	{
+          void *ptr = (void *) log_data[i++];
+          size_t len = log_data[i++];
+          size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
+          // Filter out any updates that overlap the libitm stack.  We don't
+          // bother filtering out just the overlapping bytes because we don't
+          // merge writes and thus any overlapping write is either bogus or
+          // would restore data on stack frames that are not in use anymore.
+          // FIXME The memcpy can/will end up as another call but we
+          // calculated BOT based on the current function.  Can we inline or
+          // reimplement this without too much trouble due to unaligned calls
+          // and still have good performance, so that we can remove the hack
+          // in mask_stack_bottom()?
+          if (likely(ptr > top || (uint8_t*)ptr + len <= bot))
+            __builtin_memcpy (ptr, &log_data[i], len);
+	  
+          i += words;
+	}
+      log_data.clear();
+    }
+}
+
+void __attribute__((noinline))
+gtm_undolog::rollback (gtm_thread* tx, size_t until_size)
+{
+  size_t i, n = undolog.size();
+  void *top = mask_stack_top(tx);
+  void *bot = mask_stack_bottom(tx);
+
+  if (n > 0)
+    {
       for (i = n; i-- > until_size; )
 	{
-          void *ptr = (void *) log_data[i--];
-          size_t len = log_data[i];
+          void *ptr = (void *) undolog[i--];
+          size_t len = undolog[i];
           size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
           i -= words;
           // Filter out any updates that overlap the libitm stack.  We don't
@@ -59,19 +91,10 @@ gtm_log::commit (gtm_thread* tx, size_t until_size)
           // and still have good performance, so that we can remove the hack
           // in mask_stack_bottom()?
           if (likely(ptr > top || (uint8_t*)ptr + len <= bot))
-            __builtin_memcpy (ptr, &log_data[i], len);
+            __builtin_memcpy (ptr, &undolog[i], len);
 	}
-      log_data.set_size(until_size);
+      undolog.set_size(until_size);
     }
-}
-
-void
-gtm_log::rollback (size_t until_size)
-{
-  if (until_size)
-    log_data.set_size(until_size);
-  else
-    log_data.clear();
 }
 
 void ITM_REGPARM

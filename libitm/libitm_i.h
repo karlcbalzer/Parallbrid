@@ -182,20 +182,19 @@ struct gtm_log
   {
     size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
     gtm_word *entry = log_data.push(words + 2);
-    memcpy(entry, value_ptr, len);
-    entry[words] = len;
-    entry[words + 1] = (gtm_word) addr_ptr;
+    entry[0] = (gtm_word) addr_ptr;
+    entry[1] = len;
+    memcpy(&entry[2], value_ptr, len);
     return entry;
   }
 
+  // Sets the log size to 'until_size' thus removing the last entrys.
+  void rollback (size_t until_size = 0) { log_data.set_size(until_size); }
   size_t size() const { return log_data.size(); }
   
   // In local.cc
-  // Commits the last log entrys until 'until_size' to memory. For a full commit
-  // of all entrys until_size must be zero. 
-  void commit (gtm_thread* tx, size_t until_size = 0);
-  // Sets the log size to 'until_size' thus removing the last entrys.
-  void rollback (size_t until_size = 0);
+  // Commits the log entrys  to memory.
+  void commit (gtm_thread* tx);
 };
 
 // An undolog for the ITM logging functions. Can also be used as an undolog for
@@ -203,13 +202,24 @@ struct gtm_log
 // and rollback switched.
 struct gtm_undolog
 {
-  gtm_log undo_log;
-  
-  gtm_word* log(const void *ptr, size_t len) { return undo_log.log(ptr, ptr, len); }
-  size_t size() const { return undo_log.size(); }
-  void commit () { undo_log.rollback(); }
-  void rollback(gtm_thread* tx, size_t until_size = 0) 
-    { undo_log.commit(tx, until_size); } 
+  vector<gtm_word> undolog;
+
+  // Log the previous value at a certain address.
+  // The easiest way to inline this is to just define this here.
+  void log(const void *ptr, size_t len)
+  {
+    size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
+    gtm_word *undo = undolog.push(words + 2);
+    memcpy(undo, ptr, len);
+    undo[words] = len;
+    undo[words + 1] = (gtm_word) ptr;
+  }
+
+  void commit () { undolog.clear(); }
+  size_t size() const { return undolog.size(); }
+
+  // In local.cc
+  void rollback (gtm_thread* tx, size_t until_size = 0);
 };
 
 // Contains all thread-specific data required by the entire library.
