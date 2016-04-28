@@ -100,6 +100,11 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 		    tx->state &= ~gtm_thread::STATE_SOFTWARE;
 		  }
 		}
+	  // If this nested transaction goes irrevocable, then restart.
+	  // ?? This restart should never be executed since the enclosing
+	  // transaction should have had the property pr_doesGoIrrevocable. ?? 
+	  if ((prop & pr_doesGoIrrevocable) && !(tx->state & gtm_thread::STATE_IRREVOCABLE))
+	    restart(RESTART_SERIAL_IRR);
 	  // This is a nested transaction that will be flattend.
 	  tx->nesting++;
 	  return ((prop & pr_uninstrumentedCode) && 
@@ -223,7 +228,6 @@ invalbrid_mg::abort(_ITM_abortReason reason)
     }
 }
 
-
 void 
 invalbrid_mg::commit() 
 {
@@ -310,7 +314,8 @@ invalbrid_mg::restart(gtm_restart_reason rr)
 {
   gtm_thread* tx = gtm_thr();
   assert(rr != NO_RESTART);
-  assert(tx->state == gtm_thread::STATE_SOFTWARE);
+  // Only non irrevocable transactions my restart.
+  assert(!(tx->state & gtm_thread::STATE_IRREVOCABLE));
   tx->restart_total++;
   tx->restart_reason[rr]++;
   tx->rollback();
@@ -318,6 +323,7 @@ invalbrid_mg::restart(gtm_restart_reason rr)
   uint32_t ret = 0;
   if (rr == RESTART_UNINSTRUMENTED_CODEPATH || rr == RESTART_SERIAL_IRR)
     {
+      assert(tx->prop & pr_hasNoAbort);
       set_abi_disp(dispatch_invalbrid_sglsw());
       ret = a_runUninstrumentedCode;
     }
@@ -328,19 +334,31 @@ invalbrid_mg::restart(gtm_restart_reason rr)
 	  set_abi_disp(dispatch_invalbrid_specsw());
 	  ret = a_runInstrumentedCode;
 	}
+      // If we have restartet to many times, switch to serial mode.
       else
 	{
-	  if (sw_cnt.load() == 0)
-	    {
-	      set_abi_disp(dispatch_invalbrid_sglsw());
-	      ret = a_runUninstrumentedCode;
-	    }
+	  // If the transaction has no abort, we can use sglsw oder irrevocsw
+	  // transactionen.
+	  if (tx->prop & pr_hasNoAbort)
+	  {
+	    if (sw_cnt.load() == 0)
+	      {
+		set_abi_disp(dispatch_invalbrid_sglsw());
+		ret = a_runUninstrumentedCode;
+	      }
+	    else
+	      {
+		set_abi_disp(dispatch_invalbrid_sglsw()); //TODO irrevocsw.
+		ret = a_runUninstrumentedCode;
+	      }
+	  }
+	  // If the transaction may abort, we have to use specsw in serial mode.
 	  else
 	    {
-	      set_abi_disp(dispatch_invalbrid_sglsw()); //TODO irrevocsw.
-	      ret = a_runUninstrumentedCode;
+	      set_abi_disp(dispatch_invalbrid_specsw());
+	      ret = a_runInstrumentedCode;
+	      tx->state |= gtm_thread::STATE_SERIAL;
 	    }
-	      
 	}
     }
   abi_disp()->begin();

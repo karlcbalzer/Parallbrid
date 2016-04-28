@@ -89,7 +89,7 @@ namespace GTM HIDDEN {
     // appropiate meta data.
     uint32_t begin(uint32_t, const gtm_jmpbuf *);
     // Aborts the current transaction.
-    void abort(_ITM_abortReason) ITM_NORETURN ;
+    void abort(_ITM_abortReason) ITM_NORETURN;
     // Trys to commit the current transaction. If it fails, the transaction will
     // be restartet with same or another method.
     void commit();

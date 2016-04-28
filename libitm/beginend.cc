@@ -49,8 +49,13 @@ method_group *GTM::method_group::method_gr = 0;
 void ITM_REGPARM
 _ITM_abortTransaction (_ITM_abortReason reason)
 {
-  //method_group::method_gr->abort(reason);
-    GTM_fatal("abort is not yet supported");
+  if (likely(_ITM_inTransaction() != outsideTransaction))
+    {
+      method_group::method_gr->abort(reason);
+      __builtin_unreachable();
+    }
+  else 
+    GTM_fatal("abortTransaction can only be called within a transaction.\n");
 }
 
 // Calls the commit routine of the current method_group.

@@ -196,13 +196,22 @@ public:
     invalbrid_mg::sw_cnt++; 
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
+    // If this transaction has been restartet as a serial transaction, we have
+    // to acquire the commit lock. And set the shared state to serial.
+    if (tx->state & gtm_thread::STATE_SERIAL)
+      {
+	pthread_mutex_lock(&invalbrid_mg::commit_lock);
+	tx->shared_data_lock.writer_lock();
+	tx->shared_state |= gtm_thread::STATE_SERIAL;
+	tx->shared_data_lock.writer_unlock();
+      }
     uint32_t local_cs = mg->commit_sequence.load();
     while (local_cs & 1)
       {
 	cpu_relax();
 	local_cs = mg->commit_sequence.load();
       }
-    tx->state = gtm_thread::STATE_SOFTWARE; 
+    tx->state |= gtm_thread::STATE_SOFTWARE; 
     // Setting shared_state and possibly tx_data must be protected by 
     // shared_data_lock as writer.
     tx->shared_data_lock.writer_lock();
@@ -236,7 +245,11 @@ public:
 	invalbrid_mg::sw_cnt--;
 	return NO_RESTART;
       }
-    pthread_mutex_lock(&invalbrid_mg::commit_lock);
+    // If this transaction went serial and has already acquired the commit lock,
+    // we don't want to take it. This case should be unlikely. The default case
+    // should be that the commit lock must be acquired at this point.
+    if (likely(!(tx->state & gtm_thread::STATE_SERIAL)))
+      pthread_mutex_lock(&invalbrid_mg::commit_lock);
     mg->committing_tx.store(tx);
     gtm_restart_reason rr = validate();
     if (rr != NO_RESTART)
@@ -281,6 +294,11 @@ public:
       tx->tx_data.load()->load(cp->tx_data);
     else
       {
+	// If this transaction has a serial state, then this rollback belongs
+	// to an outer abort of an serial mode software transaction, so we have
+	// to release the commit lock.
+	if (tx->state & gtm_thread::STATE_SERIAL)
+	  pthread_mutex_unlock(&invalbrid_mg::commit_lock);
 	tx->tx_data.load()->clear();
 	tx->state = 0;
 	tx->shared_state.store(0);
