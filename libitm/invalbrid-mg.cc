@@ -72,10 +72,34 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 	{
 	  // If there is no instrumented codepath and disp can not run 
 	  // uninstrumented, we need to restart with a dispatch that can run 
-	  // uninstrumented.
+	  // uninstrumented or in the case of an irrevocable transaction upgrade
+	  // to an irrevocable transaction, that can run uninstrumented.
 	  if (!(prop & pr_instrumentedCode)) 
 	    if (!abi_disp()->can_run_uninstrumented_code())
-	      restart(RESTART_UNINSTRUMENTED_CODEPATH);
+	      {
+		if (!(tx->state & gtm_thread::STATE_IRREVOCABLE))
+		  restart(RESTART_UNINSTRUMENTED_CODEPATH);
+		else
+		  {
+		    // Set the dispatch to sglsw, because this is the only
+		    // irrevocable transaction type, that can run uninstrumented.
+		    set_abi_disp(dispatch_invalbrid_sglsw());
+		    // Let the dispatch setup the transaction.
+		    abi_disp()->begin();
+		    // Since we are now running uninstrumented we must clear the
+		    // transactional data because the uninstrumented commit won't.
+		    tx->shared_data_lock.writer_lock();
+		    // Remove the Software flag, which is set, whenever a
+		    // transaction uses the transactional_data.
+		    tx->shared_state &= ~gtm_thread::STATE_SOFTWARE;
+		    // Clear the transaction data.
+		    gtm_transaction_data *data = tx->tx_data.load();
+		    if (data != NULL)
+		      data->clear();
+		    tx->shared_data_lock.writer_unlock();
+		    tx->state &= ~gtm_thread::STATE_SOFTWARE;
+		  }
+		}
 	  // This is a nested transaction that will be flattend.
 	  tx->nesting++;
 	  return ((prop & pr_uninstrumentedCode) && 
