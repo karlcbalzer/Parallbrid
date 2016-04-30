@@ -24,8 +24,11 @@
 
 #include "libitm_i.h"
 #include <ctype.h>
-#include <iostream>
-#include "invalbrid-mg.h"
+
+#ifdef DEBUG_INVALBRID
+  #include <iostream>
+  #include "invalbrid-mg.h"
+#endif
 
 
 using namespace GTM;

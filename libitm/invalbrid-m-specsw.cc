@@ -291,7 +291,10 @@ public:
     gtm_thread *tx = gtm_thr();
     tx->shared_data_lock.writer_lock();
     if (cp)
-      tx->tx_data.load()->load(cp->tx_data);
+      {
+	gtm_transaction_data *data = tx->tx_data.load();
+	data->load(cp->tx_data);
+      }
     else
       {
 	// If this transaction has a serial state, then this rollback belongs

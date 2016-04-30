@@ -25,6 +25,8 @@
 #include "libitm_i.h"
 #include "invalbrid-mg.h"
 
+
+
 using namespace GTM;
 
 #define HW_RESTARTS 10
@@ -64,7 +66,6 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
       tx = new gtm_thread();
       set_gtm_thr(tx);
     }
-  
   if(tx->nesting > 0)
     {
       // This is a nested transaction.
@@ -101,8 +102,6 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 		  }
 		}
 	  // If this nested transaction goes irrevocable, then restart.
-	  // ?? This restart should never be executed since the enclosing
-	  // transaction should have had the property pr_doesGoIrrevocable. ?? 
 	  if ((prop & pr_doesGoIrrevocable) && !(tx->state & gtm_thread::STATE_IRREVOCABLE))
 	    restart(RESTART_SERIAL_IRR);
 	  // This is a nested transaction that will be flattend.
@@ -137,19 +136,24 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 	    }
 	  else
 	    {
-	      #ifdef USE_HTM_FASTPATH
-		if (sw_cnt.load() != 0)
+	      /*#ifdef HAVE_AS_RTM
+		if ((prop & pr_instrumentedCode) && (sw_cnt.load() != 0))
 		  set_abi_disp(dispatch_invalbrid_specsw()); //TODO BFHW
 		else
-		  set_abi_disp(dispatch_invalbrid_specsw()); // TODO LITEHW
-	      #else
+		  set_abi_disp(dispatch_invalbrid_sglsw()); // TODO LITEHW
+	      #else*/
+		if (prop & pr_instrumentedCode)
 		  set_abi_disp(dispatch_invalbrid_specsw());
-	      #endif
+		else
+		  set_abi_disp(dispatch_invalbrid_sglsw());
+	      //#endif
 	    }
 	}
       else
-	assert(prop & pr_instrumentedCode);
-	set_abi_disp(dispatch_invalbrid_specsw());
+	{
+	  assert(prop & pr_instrumentedCode);
+	  set_abi_disp(dispatch_invalbrid_specsw());
+	}
     }
   
   // Initialization that is common for outermost and closed nested transactions.
@@ -209,9 +213,7 @@ invalbrid_mg::abort(_ITM_abortReason reason)
       gtm_transaction_cp *cp = tx->parent_txns.pop();
       uint32_t longjmp_prop = tx->prop;
       gtm_jmpbuf longjmp_jb = tx->jb;
-
       tx->rollback (cp, true);
-
       // Jump to nested transaction (use the saved jump buffer).
       GTM_longjmp (a_abortTransaction | a_restoreLiveVariables,
 		   &longjmp_jb, longjmp_prop);
@@ -487,7 +489,6 @@ invalbrid_tx_data::save()
   // bloomfilters.
   ret_ws->set(ws);
   ret_rs->set(rs);
-  ret->write_log = write_log;
   ret->log_size = log_size;
   ret->write_hash = write_hash;
   ret->local_commit_sequence = local_commit_sequence;
@@ -507,6 +508,7 @@ invalbrid_tx_data::load(gtm_transaction_data* tx_data)
   ws->set(others_ws);
   rs->set(others_rs);
   log_size = data->log_size;
+  write_log->rollback(data->log_size);
   write_hash = data->write_hash;
   local_commit_sequence = data->local_commit_sequence;
   // The invalid flag and reason are not restored to prevent lost updates on them.
