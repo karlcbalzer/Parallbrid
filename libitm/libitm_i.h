@@ -29,7 +29,7 @@
 #ifndef LIBITM_I_H
 #define LIBITM_I_H 1
 
-#define DEBUG_INVALBRID 1
+//#define DEBUG_INVALBRID 1
 #include "libitm.h"
 #include "config.h"
 
@@ -128,7 +128,7 @@ struct gtm_transaction_data
   virtual gtm_transaction_data* save() = 0;
   // Sets this transaction datas values to the values given as an argument. 
   virtual void load(gtm_transaction_data *) = 0;
-  // Reset prepares this container to be used by the next transaction.
+  // Clear prepares this container to be used by the next transaction.
   virtual void clear() = 0; 
 };
 
@@ -191,9 +191,14 @@ struct gtm_log
   void rollback (size_t until_size = 0) { log_data.set_size(until_size); }
   size_t size() const { return log_data.size(); }
   
+  void load_value(void*, void*, size_t);
+  
   // In local.cc
   // Commits the log entrys  to memory.
   void commit (gtm_thread* tx);
+  
+  static void *operator new(size_t);
+  static void operator delete(void *);
 };
 
 // An undolog for the ITM logging functions. Can also be used as an undolog for

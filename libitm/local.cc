@@ -66,6 +66,57 @@ gtm_log::commit (gtm_thread* tx)
     }
 }
 
+void
+gtm_log::load_value(void* dst, void* r_addr, size_t r_len)
+{
+  void *w_addr;
+  size_t w_len;
+  for (size_t i=0; i<log_data.size(); )
+  {
+    w_addr = (void*)log_data[i++];
+    w_len = log_data[i++];
+    size_t words = (w_len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
+    if (r_addr >= w_addr && r_addr < (uint8_t*)w_addr + w_len)
+      {
+	// The read address starts in this entry, so we have to load parts or
+	// all of it.
+	size_t offset = (size_t)r_addr - (size_t)w_addr;
+	::memcpy(dst,(uint8_t*)&log_data[i] + offset,
+		 r_len <= w_len - offset ? r_len : w_len - offset);  
+      }
+    else
+      if (w_addr >= r_addr && w_addr < (uint8_t*)r_addr + r_len)
+	{
+	  // The read address does not start in this entry, but its value is
+	  // part of this entry.
+	  size_t offset = (size_t) w_addr - (size_t) r_addr;
+	  ::memcpy((uint8_t*)dst+offset, (uint8_t*)&log_data[i],
+		   w_len <= r_len - offset ? w_len : r_len - offset);
+	}
+    i+=words;
+  }
+}
+
+// Allocate a log structure.
+void *
+gtm_log::operator new (size_t s)
+{
+  void *log;
+
+  assert(s == sizeof(gtm_log));
+
+  log = xmalloc (sizeof (gtm_log), true);
+
+  return log;
+}
+
+// Free the given log.
+void
+gtm_log::operator delete(void *log)
+{
+  free(log);
+}
+
 void __attribute__((noinline))
 gtm_undolog::rollback (gtm_thread* tx, size_t until_size)
 {

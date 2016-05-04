@@ -132,15 +132,11 @@ protected:
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
-    // Search in the hash_map for previous writes to this address.
-    std::unordered_map<const void*, const gtm_word*>::const_iterator found =
-      spec_data->write_hash.find((void*) addr);
-    if (found != spec_data->write_hash.end())
-      return *(&found->second[2]);
-    // If there was no previous write, the addr will be added to the readset.
+    // The addr will be added to the readset.
     bloomfilter *bf = spec_data->readset.load();
-    bf->add_address((void*) addr);
+    bf->add_address((void*) addr, sizeof(V));
     V val = *addr;
+    spec_data->write_log->load_value((void*)&val,(void*)addr, sizeof(V)); 
     // Before the value can be returned, we have to do validation for opacity.
     gtm_restart_reason rr = validate();
     if (rr != NO_RESTART)
@@ -162,14 +158,10 @@ protected:
       method_group::method_gr->restart(rr);
     // Adding the address to the writeset bloomfilter.
     bloomfilter *bf = spec_data->writeset.load();
-    bf->add_address((void*)addr);
+    bf->add_address((void*)addr, sizeof(V));
     // Adding the addr, value pair to the writelog.
-    gtm_word *entry = spec_data->write_log->log((void*)addr,(void*)&value, sizeof(V));
+    spec_data->write_log->log((void*)addr,(void*)&value, sizeof(V));
     spec_data->log_size = spec_data->write_log->size();
-    // Also adding the address and a pointer to the writelog to a hashmap for
-    // quick access on a load.
-    spec_data->write_hash.insert(
-      std::make_pair<const void *, const gtm_word *>((void*)addr, entry));
   }
 
 public:

@@ -26,16 +26,19 @@
 
 #include "libitm_i.h"
 #include <pthread.h>
-#include <unordered_map>
 
+
+#define BLOOMFILTER_LENGTH 32
+#define HW_RESTARTS 10
+#define SW_RESTARTS 5
 
 namespace GTM HIDDEN {
   struct bloomfilter
   {
-    atomic<uint32_t> bf[32] = {};
+    atomic<uint32_t> bf[BLOOMFILTER_LENGTH] = {};
     
-    // Add an address to the bloomfilter.
-    void add_address (void *);
+    // Add an address and the following ones, according to len, to the bloomfilter.
+    void add_address (void *, size_t len = 1);
     // Adds a bloomfilter to this bloomfilter.
     void set (const bloomfilter *);
     // Check for an intersection between the bloomfilters.
@@ -44,6 +47,10 @@ namespace GTM HIDDEN {
     bool empty ();
     
     void clear();
+    
+    
+    static void *operator new(size_t);
+    static void operator delete(void *);
     
   }; // bloomfilter
   
@@ -56,7 +63,6 @@ namespace GTM HIDDEN {
     gtm_log *write_log;
     size_t log_size;
     // The hash map is used for an easy access to the speculative writes.
-    std::unordered_map<const void *, const gtm_word *> write_hash;
     // The invalid flag and the local commit sequenz are used by specsws 
     uint32_t local_commit_sequence;
     // The invalid flag that is set by other transactions, if they invalidate
@@ -68,6 +74,10 @@ namespace GTM HIDDEN {
     void clear();
     void load (gtm_transaction_data*);
     gtm_transaction_data* save();
+    
+    
+    static void *operator new(size_t);
+    static void operator delete(void *);
     
     invalbrid_tx_data();
     ~invalbrid_tx_data();

@@ -29,8 +29,6 @@
 
 using namespace GTM;
 
-#define HW_RESTARTS 10
-#define SW_RESTARTS 5
 
 // Invalbrids static initialization.
 pthread_mutex_t invalbrid_mg::commit_lock
@@ -384,20 +382,27 @@ namespace
 } // Anon namespace
 
 void
-bloomfilter::add_address(void *ptr)
+bloomfilter::add_address(void *ptr, size_t len)
 {
+  uint32_t tmp_bf[BLOOMFILTER_LENGTH] = {};
   hash_bit_accessor hb;
-  hb.ptr = ptr;
-  for (int i=0; i<4; i++)
+  for (size_t j = 0; j<len; j++)
   {
-    uint32_t block;
-  #ifdef __x86_64__
-    block = hb.blocks[i*2];
-  #else
-    block = hb.blocks[i];
-  #endif
-    bf[i*8+block/32] |= 0x01 << block%32;
+    hb.ptr = (uint8_t*)ptr + j;
+    for (int i=0; i<4; i++)
+    {
+      uint32_t block;
+    #ifdef __x86_64__
+      block = hb.blocks[i*2];
+    #else
+      block = hb.blocks[i];
+    #endif
+      tmp_bf[i*8+block/32] |= 0x01 << block%32;
+    }
   }
+  for (int i=0; i<BLOOMFILTER_LENGTH; i++)
+    if (tmp_bf[i] != 0)
+      bf[i] |= tmp_bf[i];
 }
 
 void
@@ -439,6 +444,25 @@ bloomfilter::clear()
   for (int i=0; i<32; i++) bf[i].store(0);
 }
 
+// Allocate a bloomfilter structure.
+void *
+bloomfilter::operator new (size_t s)
+{
+  void *bf;
+
+  assert(s == sizeof(bloomfilter));
+
+  bf = xmalloc (sizeof (bloomfilter), true);
+
+  return bf;
+}
+
+// Free the given bloomfilter.
+void
+bloomfilter::operator delete(void *bf)
+{
+  free(bf);
+}
 
 //Constructor and destructor for invalbrid transactional data.
 invalbrid_tx_data::invalbrid_tx_data()
@@ -459,6 +483,26 @@ invalbrid_tx_data::~invalbrid_tx_data()
     delete write_log;
 }
 
+// Allocate a transaction data structure.
+void *
+invalbrid_tx_data::operator new (size_t s)
+{
+  void *tx_data;
+
+  assert(s == sizeof(invalbrid_tx_data));
+
+  tx_data = xmalloc (sizeof (invalbrid_tx_data), true);
+
+  return tx_data;
+}
+
+// Free the given transaction data.
+void
+invalbrid_tx_data::operator delete(void *tx_data)
+{
+  free(tx_data);
+}
+
 void
 invalbrid_tx_data::clear()
 {
@@ -468,7 +512,6 @@ invalbrid_tx_data::clear()
   local_commit_sequence = 0;
   invalid.store(false);
   invalid_reason.store(NO_RESTART);
-  write_hash.clear();
   bloomfilter *ws = writeset.load();
   bloomfilter *rs = readset.load();
   ws->clear();
@@ -490,7 +533,6 @@ invalbrid_tx_data::save()
   ret_ws->set(ws);
   ret_rs->set(rs);
   ret->log_size = log_size;
-  ret->write_hash = write_hash;
   ret->local_commit_sequence = local_commit_sequence;
   ret->invalid.store(invalid.load());
   ret->invalid_reason.store(invalid_reason);
@@ -509,7 +551,6 @@ invalbrid_tx_data::load(gtm_transaction_data* tx_data)
   rs->set(others_rs);
   log_size = data->log_size;
   write_log->rollback(data->log_size);
-  write_hash = data->write_hash;
   local_commit_sequence = data->local_commit_sequence;
   // The invalid flag and reason are not restored to prevent lost updates on them.
   // The data object is no longer needed after the containing information has
