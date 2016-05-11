@@ -24,6 +24,7 @@
 
 #include "libitm_i.h"
 #include "invalbrid-mg.h" 
+#include <stdio.h>
 
 using namespace GTM;
 
@@ -48,84 +49,58 @@ protected:
       return RESTART_TRY_AGAIN;
     // If there is a transaction which holds the commit_lock, we have to
     // validate the read and write set against its write set.
-    gtm_thread *c_tx = mg->committing_tx.load();
-    // Take the thread_lock as reader to garantee that the commiting thread
-    // won't be destroyed while we're working on it.
-    bool r_conflict = false, w_conflict = false;
+    // Take the thread_lock as reader to garantee that the commiting thread, if
+    // one exists, won't be destroyed while we're working on it.
     tx->thread_lock.reader_lock();
+    gtm_thread *c_tx = mg->committing_tx.load();
+    bool r_conflict = false, w_conflict = false;
     if (c_tx !=0 && c_tx != tx)
       {
-	c_tx->shared_data_lock.reader_lock();
-	if(tx->shared_state.load() & gtm_thread::STATE_SOFTWARE)
-	{
-	  invalbrid_tx_data* c_tx_data = (invalbrid_tx_data*)c_tx->tx_data.load();
-	  assert(c_tx_data != NULL);
-	  bloomfilter *c_bf = c_tx_data->writeset.load();
-	  bloomfilter *r_bf = spec_data->readset.load();
-	  bloomfilter *w_bf = spec_data->writeset.load();
-	  r_conflict = r_bf->intersects(c_bf); // TODO store the bf in a local object and execute intersection check after lock release. This also would mean only one shared acces to the writeset of the commiting transaction. 
-	  w_conflict = w_bf->intersects(c_bf);
-	}
-	c_tx->shared_data_lock.reader_unlock();
+	// We do not have to check the state of the committing tx, since only
+	// transactions with a read- and writeset set committing_tx. If the
+	// transaction pointed to by committing_tx has moved on and has no
+	// longer the software state, then there is no problem either, since it
+	// still carrys an read and writeset, even if its not used.
+	invalbrid_tx_data* c_tx_data = (invalbrid_tx_data*)c_tx->tx_data.load();
+	// Load the writeset of the committing transaction.
+	bloomfilter *c_bf = c_tx_data->writeset.load();
+	// Load this threads read- and writeset.
+	bloomfilter *r_bf = spec_data->readset.load();
+	bloomfilter *w_bf = spec_data->writeset.load();
+	// Intersect this transactions read- and writeset with the writeset of the
+	// committing transaction.
+	r_conflict = r_bf->intersects(c_bf);
+	w_conflict = w_bf->intersects(c_bf);
       }
     tx->thread_lock.reader_unlock();
-    // Load this threads read- and writeset. If one of them intersects with the
-    // writeset of the commiting transaction, then this transaction has to restart.
+    // If this transactions read- or writeset intersect with the writeset of
+    // the committing transaction, then this transaction has to be restarted.
     if (r_conflict)
       return RESTART_VALIDATE_READ;
     if (w_conflict)
       return RESTART_VALIDATE_WRITE;
     // Wait while hardware transactions are in their post commit phase.
     while (mg->hw_post_commit != 0) { cpu_relax(); }
-    // If the INVALID flag is set, this transaction has to be restartet.
-    tx->shared_data_lock.reader_lock();
-    bool invalid = spec_data->invalid.load();
-    gtm_restart_reason reason = spec_data->invalid_reason.load();
-    tx->shared_data_lock.reader_unlock();
-    if (invalid == true) 
-      return reason;
-    
-    return NO_RESTART;    
+    // If this transaction has been invalidated, it has to be restartet. This is
+    // handled by the caller.
+    gtm_restart_reason rr = spec_data->invalid_reason.load(memory_order_acquire);
+    return rr;    
   }
   
-  static void 
-  invalidate()
+  static void
+  pre_write(void *dst, size_t size)
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
-    tx->thread_lock.reader_lock();
-    gtm_thread **prev = &(tx->list_of_threads);
-    bloomfilter *bf = spec_data->writeset.load();
-    for (; *prev; prev = &(*prev)->next_thread)
+    // If this transaction has been invalidated, it has to be restarted.
+    gtm_restart_reason rr = spec_data->invalid_reason.load(memory_order_acquire);
+    if (rr != NO_RESTART)
       {
-	if (*prev == tx)
-	  continue;
-	// Lock prevs shared data for writing. 
-	(*prev)->shared_data_lock.writer_lock(); // ?TODO? use reader and upgrade to writer if necessary.
-	// Only invalidate software transactions in this case other SpecSWs.
-	// IrrevocSWs also have the state software, because they carry read and
-	// write sets. But an IrrevocSW can not be active at this point, because
-	// invalidation is only done when holding the commit lock.
-	if((*prev)->shared_state.load() & gtm_thread::STATE_SOFTWARE)
-	{
-	  invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load();
-	  assert(prev_data != NULL);
-	  bloomfilter *w_bf = prev_data->writeset.load();
-	  bloomfilter *r_bf = prev_data->readset.load();
-	  if (bf->intersects(w_bf))
-	    {
-	      prev_data->invalid_reason.store(RESTART_VALIDATE_WRITE);
-	      prev_data->invalid.store(true);
-	    }
-	  if (bf->intersects(r_bf))
-	    {
-	      prev_data->invalid_reason.store(RESTART_VALIDATE_READ);
-	      prev_data->invalid.store(true);
-	    }
-	}
-	(*prev)->shared_data_lock.writer_unlock();
+	method_group::method_gr->restart(rr);
       }
-    tx->thread_lock.reader_unlock();
+    // Adding the address to the writeset bloomfilter.
+    bloomfilter *bf = spec_data->writeset.load();
+    bf->add_address(dst, size);
   }
   
   template <typename V> static V load(const V* addr, ls_modifier mod)
@@ -136,29 +111,24 @@ protected:
     bloomfilter *bf = spec_data->readset.load();
     bf->add_address((void*) addr, sizeof(V));
     V val = *addr;
-    spec_data->write_log->load_value((void*)&val,(void*)addr, sizeof(V)); 
+    spec_data->write_log->load_value((void*)&val,(void*)addr, sizeof(V));
     // Before the value can be returned, we have to do validation for opacity.
-    gtm_restart_reason rr = validate();
-    if (rr != NO_RESTART)
-      method_group::method_gr->restart(rr);
+    // But only if this transaction hasn't been upgraded to serial status.
+    if (!(tx->state & gtm_thread::STATE_SERIAL))
+      {
+	gtm_restart_reason rr = validate();
+	if (rr != NO_RESTART)
+	  method_group::method_gr->restart(rr);
+      }
     return val;
   }
   
   template <typename V> static void store(V* addr, const V value,
       ls_modifier mod)
   {
+    pre_write(addr, sizeof(V));
     gtm_thread *tx = gtm_thr();
     invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
-    // If this transaction has been invalidated, it must restart.
-    tx->shared_data_lock.reader_lock();
-    bool invalid = spec_data->invalid.load();
-    gtm_restart_reason rr = spec_data->invalid_reason;
-    tx->shared_data_lock.reader_unlock();
-    if (invalid)
-      method_group::method_gr->restart(rr);
-    // Adding the address to the writeset bloomfilter.
-    bloomfilter *bf = spec_data->writeset.load();
-    bf->add_address((void*)addr, sizeof(V));
     // Adding the addr, value pair to the writelog.
     spec_data->write_log->log((void*)addr,(void*)&value, sizeof(V));
     spec_data->log_size = spec_data->write_log->size();
@@ -168,15 +138,39 @@ public:
   static void memtransfer_static(void *dst, const void* src, size_t size,
       bool may_overlap, ls_modifier dst_mod, ls_modifier src_mod)
   {
-    if (!may_overlap)
-      ::memcpy(dst, src, size);
-    else
-      ::memmove(dst, src, size);
+    // read phase
+    gtm_thread *tx = gtm_thr();
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    // The src addresses will be added to the readset.
+    bloomfilter *bf = spec_data->readset.load();
+    bf->add_address(src, size);
+    void *tmp = xmalloc (size, true);
+    ::memcpy(tmp, src, size); 
+    spec_data->write_log->load_value(tmp,src, size); 
+    // Before the value can be added to the write log, we have to do validation
+    // for opacity. But only if this is not an serial transaction.
+    if (!(tx->state & gtm_thread::STATE_SERIAL))
+      {
+	gtm_restart_reason rr = validate();
+	if (rr != NO_RESTART)
+	  method_group::method_gr->restart(rr);
+      }
+    // write phase
+    bf = spec_data->writeset.load();
+    bf->add_address(dst, size);
+    // Adding the addr, value pair to the writelog.
+    spec_data->write_log->log(dst,tmp, size);
+    spec_data->log_size = spec_data->write_log->size();
   }
 
   static void memset_static(void *dst, int c, size_t size, ls_modifier mod)
   {
-    ::memset(dst, c, size);
+    pre_write(dst, size);
+    gtm_thread *tx = gtm_thr();
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    // Adding the addr, value pair to the writelog.
+    spec_data->write_log->log_memset(dst,c, size);
+    spec_data->log_size = spec_data->write_log->size();
   }
   
   CREATE_DISPATCH_METHODS(virtual, )
@@ -193,9 +187,7 @@ public:
     if (tx->state & gtm_thread::STATE_SERIAL)
       {
 	pthread_mutex_lock(&invalbrid_mg::commit_lock);
-	tx->shared_data_lock.writer_lock();
 	tx->shared_state |= gtm_thread::STATE_SERIAL;
-	tx->shared_data_lock.writer_unlock();
       }
     uint32_t local_cs = mg->commit_sequence.load();
     while (local_cs & 1)
@@ -204,19 +196,22 @@ public:
 	local_cs = mg->commit_sequence.load();
       }
     tx->state |= gtm_thread::STATE_SOFTWARE; 
-    // Setting shared_state and possibly tx_data must be protected by 
-    // shared_data_lock as writer.
-    tx->shared_data_lock.writer_lock();
-    tx->shared_state.store(gtm_thread::STATE_SOFTWARE);
     if (unlikely(tx->tx_data.load() == NULL))
       {
 	invalbrid_tx_data *spec_data = new invalbrid_tx_data();
 	spec_data->write_log = new gtm_log();
 	tx->tx_data.store((gtm_transaction_data*)spec_data);
       }
+    // Set the shared state to STATE_SOFTWARE, so invalidating transactions
+    // know that this is a transaction that carrys a read and write set. We do
+    // not need to take the shared_data_lock, since shared_state is set
+    // atomically and the memory order garantees that tx_data is published
+    // before shared_state is.
+    tx->shared_state |= gtm_thread::STATE_SOFTWARE;
     invalbrid_tx_data* tx_data = (invalbrid_tx_data*) tx->tx_data.load();
+    // Save the commit_sequence so we can restart if a sglsw transaction was
+    // starteted.
     tx_data->local_commit_sequence = local_cs;
-    tx->shared_data_lock.writer_unlock();
     #ifdef DEBUG_INVALBRID
       tx->tx_types_started[SPEC_SW]++;
     #endif
@@ -233,6 +228,8 @@ public:
     if (bf->empty() == true)
       {
 	// Clear the tx data.
+	if (tx->state & gtm_thread::STATE_SERIAL)
+	  pthread_mutex_unlock(&invalbrid_mg::commit_lock);
 	clear();
 	invalbrid_mg::sw_cnt--;
 	return NO_RESTART;
@@ -253,7 +250,7 @@ public:
     // Commit all speculative writes to memory.
     spec_data->write_log->commit(tx);
     // Invalidate other conflicting specsw transactions.
-    invalidate();
+    invalbrid_mg::invalidate();
     // Restore committing_tx_data.
     mg->committing_tx.store(0);
     pthread_mutex_unlock(&invalbrid_mg::commit_lock);
@@ -270,18 +267,15 @@ public:
   clear()
   {
     gtm_thread *tx = gtm_thr();
-    tx->shared_data_lock.writer_lock();
+    tx->shared_state.store(0);
     tx->tx_data.load()->clear();
     tx->state = 0;
-    tx->shared_state.store(0);
-    tx->shared_data_lock.writer_unlock();
   }
   
   void
   rollback(gtm_transaction_cp *cp)
   {
     gtm_thread *tx = gtm_thr();
-    tx->shared_data_lock.writer_lock();
     if (cp)
       {
 	gtm_transaction_data *data = tx->tx_data.load();
@@ -294,11 +288,8 @@ public:
 	// to release the commit lock.
 	if (tx->state & gtm_thread::STATE_SERIAL)
 	  pthread_mutex_unlock(&invalbrid_mg::commit_lock);
-	tx->tx_data.load()->clear();
-	tx->state = 0;
-	tx->shared_state.store(0);
+	clear();
       }
-    tx->shared_data_lock.writer_unlock();
   }
   
 }; // specsw_dispatch

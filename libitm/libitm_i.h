@@ -78,6 +78,7 @@ enum invalbrid_tx_types
 {
   SPEC_SW,
   SGL_SW,
+  IRREVOC_SW,
   NUM_TYPES
 };
 #endif
@@ -186,12 +187,22 @@ struct gtm_log
     memcpy(&entry[2], value_ptr, len);
     return entry;
   }
+  
+  gtm_word* log_memset(const void *addr_ptr, const int c, size_t len)
+  {
+    size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
+    gtm_word *entry = log_data.push(words + 2);
+    entry[0] = (gtm_word) addr_ptr;
+    entry[1] = len;
+    memset(&entry[2], c, len);
+    return entry;
+  }
 
   // Sets the log size to 'until_size' thus removing the last entrys.
   void rollback (size_t until_size = 0) { log_data.set_size(until_size); }
   size_t size() const { return log_data.size(); }
   
-  void load_value(void*, void*, size_t);
+  void load_value(void*,const void*, size_t);
   
   // In local.cc
   // Commits the log entrys  to memory.
@@ -405,6 +416,7 @@ extern void set_default_method_group();
 // Methods that are used by the method groups.
 extern abi_dispatch *dispatch_invalbrid_sglsw();
 extern abi_dispatch *dispatch_invalbrid_specsw();
+extern abi_dispatch *dispatch_invalbrid_irrevocsw();
 
 // The method groups that can be uses
 extern method_group *method_group_invalbrid();

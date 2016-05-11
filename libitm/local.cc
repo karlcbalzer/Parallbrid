@@ -67,7 +67,7 @@ gtm_log::commit (gtm_thread* tx)
 }
 
 void
-gtm_log::load_value(void* dst, void* r_addr, size_t r_len)
+gtm_log::load_value(void* dst,const void* r_addr, size_t r_len)
 {
   void *w_addr;
   size_t w_len;

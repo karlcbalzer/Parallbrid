@@ -26,7 +26,7 @@
 #include <ctype.h>
 
 #ifdef DEBUG_INVALBRID
-  #include <iostream>
+  #include <stdio.h>
   #include "invalbrid-mg.h"
 #endif
 
@@ -162,21 +162,22 @@ GTM::gtm_thread::~gtm_thread()
   #ifdef DEBUG_INVALBRID
     uint32_t restarts = 0;
     for (int i=0; i<NUM_RESTARTS; i++) restarts += restart_reason[i];
-    std::cout << "RESTART_REALLOCATE: " << restart_reason[RESTART_REALLOCATE] << "\n"
-	      << "RESTART_LOCKED_READ: " << restart_reason[RESTART_LOCKED_READ] << "\n"
-	      << "RESTART_LOCKED_WRITE: " << restart_reason[RESTART_LOCKED_WRITE] << "\n"
-	      << "RESTART_VALIDATE_READ: " << restart_reason[RESTART_VALIDATE_READ] << "\n"
-	      << "RESTART_VALIDATE_WRITE: " << restart_reason[RESTART_VALIDATE_WRITE] << "\n"
-	      << "RESTART_VALIDATE_COMMIT: " << restart_reason[RESTART_VALIDATE_COMMIT] << "\n"
-	      << "RESTART_SERIAL_IRR: " << restart_reason[RESTART_SERIAL_IRR] << "\n"
-	      << "RESTART_NOT_READONLY: " << restart_reason[RESTART_NOT_READONLY] << "\n"
-	      << "RESTART_CLOSED_NESTING: " << restart_reason[RESTART_CLOSED_NESTING] << "\n"
-	      << "RESTART_INIT_METHOD_GROUP: " << restart_reason[RESTART_INIT_METHOD_GROUP] << "\n"
-	      << "RESTART_UNINSTRUMENTED_CODEPATH: " << restart_reason[RESTART_UNINSTRUMENTED_CODEPATH] << "\n"
-	      << "RESTART_TRY_AGAIN: " << restart_reason[RESTART_TRY_AGAIN] << "\n"
-	      << "total: "<< restarts << "\n";
-    std::cout << "SpecSW started:" << tx_types_started[SPEC_SW] << " SpecSW commited:" << tx_types_commited[SPEC_SW] << "\n";
-    std::cout << "SglSW started:" << tx_types_started[SGL_SW] << " SglSW commited:" << tx_types_commited[SGL_SW] << "\n";
+    printf("RESTART_REALLOCATE: %d\n", restart_reason[RESTART_REALLOCATE]);
+    printf("RESTART_LOCKED_READ: %d\n", restart_reason[RESTART_LOCKED_READ]);
+    printf("RESTART_LOCKED_WRITE: %d\n", restart_reason[RESTART_LOCKED_WRITE]);
+    printf("RESTART_VALIDATE_READ: %d\n", restart_reason[RESTART_VALIDATE_READ]);
+    printf("RESTART_VALIDATE_WRITE: %d\n", restart_reason[RESTART_VALIDATE_WRITE]);
+    printf("RESTART_VALIDATE_COMMIT: %d\n", restart_reason[RESTART_VALIDATE_COMMIT]);
+    printf("RESTART_SERIAL_IRR: %d\n", restart_reason[RESTART_SERIAL_IRR]);
+    printf("RESTART_NOT_READONLY: %d\n", restart_reason[RESTART_NOT_READONLY]);
+    printf("RESTART_CLOSED_NESTING: %d\n", restart_reason[RESTART_CLOSED_NESTING]);
+    printf("RESTART_INIT_METHOD_GROUP: %d\n", restart_reason[RESTART_INIT_METHOD_GROUP]);
+    printf("RESTART_UNINSTRUMENTED_CODEPATH: %d\n",restart_reason[RESTART_UNINSTRUMENTED_CODEPATH]);
+    printf("RESTART_TRY_AGAIN: %d\n", restart_reason[RESTART_TRY_AGAIN]);
+    printf("total: %d\n", restarts);
+    printf("SpecSW started:%d  SpecSW commited: %d\n", tx_types_started[SPEC_SW], tx_types_commited[SPEC_SW]);
+    printf("SglSW started:%d  SglSW commited: %d\n", tx_types_started[SGL_SW], tx_types_commited[SGL_SW]);
+    printf("IrrevocSW started:%d  IrrevocSW commited: %d\n", tx_types_started[IRREVOC_SW], tx_types_commited[IRREVOC_SW]);
   #endif
   
   thread_lock.writer_unlock();

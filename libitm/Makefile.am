@@ -61,7 +61,8 @@ libitm_la_SOURCES = \
 	clone.cc eh_cpp.cc local.cc \
 	query.cc useraction.cc util.cc \
 	sjlj.S tls.cc \
-	invalbrid-mg.cc invalbrid-m-sglsw.cc invalbrid-m-specsw.cc
+	invalbrid-mg.cc invalbrid-m-sglsw.cc invalbrid-m-specsw.cc \
+	invalbrid-m-irrevocsw.cc
 
 if ARCH_ARM
 libitm_la_SOURCES += hwcap.cc

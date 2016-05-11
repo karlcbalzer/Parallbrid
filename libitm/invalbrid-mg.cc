@@ -87,7 +87,6 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 		    abi_disp()->begin();
 		    // Since we are now running uninstrumented we must clear the
 		    // transactional data because the uninstrumented commit won't.
-		    tx->shared_data_lock.writer_lock();
 		    // Remove the Software flag, which is set, whenever a
 		    // transaction uses the transactional_data.
 		    tx->shared_state &= ~gtm_thread::STATE_SOFTWARE;
@@ -95,7 +94,6 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 		    gtm_transaction_data *data = tx->tx_data.load();
 		    if (data != NULL)
 		      data->clear();
-		    tx->shared_data_lock.writer_unlock();
 		    tx->state &= ~gtm_thread::STATE_SOFTWARE;
 		  }
 		}
@@ -125,9 +123,12 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 	  if (prop & pr_doesGoIrrevocable)
 	  // Only irrevocsw or sglsw can be used at this point. 
 	    {
-	      if ((prop & pr_instrumentedCode) && (sw_cnt.load() != 0))
-	      // Use irrevocsw if software transactions(specsws) are present.
-		set_abi_disp(dispatch_invalbrid_sglsw()); //TODO IRREVOCSW
+	      uint32_t software_count = sw_cnt.load();
+	      if (((prop & pr_instrumentedCode) || (prop & pr_readOnly)) 
+		&& (software_count != 0))
+	      // Use irrevocsw if software transactions(specsws) are present and
+	      // there is an instrumented codepath or this transaction is read only.
+		set_abi_disp(dispatch_invalbrid_irrevocsw());
 	      else
 	      // Use sglsw instead.
 		set_abi_disp(dispatch_invalbrid_sglsw());
@@ -348,7 +349,7 @@ invalbrid_mg::restart(gtm_restart_reason rr)
 	      }
 	    else
 	      {
-		set_abi_disp(dispatch_invalbrid_sglsw()); //TODO irrevocsw.
+		set_abi_disp(dispatch_invalbrid_irrevocsw()); 
 		ret = a_runUninstrumentedCode;
 	      }
 	  }
@@ -363,6 +364,45 @@ invalbrid_mg::restart(gtm_restart_reason rr)
     }
   abi_disp()->begin();
   GTM_longjmp (ret | a_restoreLiveVariables, &(tx->jb), tx->prop);
+}
+
+void 
+invalbrid_mg::invalidate()
+{
+  gtm_thread *tx = gtm_thr();
+  invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+  tx->thread_lock.reader_lock();
+  gtm_thread **prev = &(tx->list_of_threads);
+  bloomfilter *bf = spec_data->writeset.load();
+  for (; *prev; prev = &(*prev)->next_thread)
+    {
+      if (*prev == tx)
+	continue;
+      // Invalidate other software transactions in this case other SpecSWs.
+      // IrrevocSWs also have the state software, because they carry a
+      // writeset, but an IrrevocSW can not be active at this point, because
+      // invalidation is only done when holding the commit lock.
+      if((*prev)->shared_state.load() & gtm_thread::STATE_SOFTWARE)
+      {
+	invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load();
+	assert(prev_data != NULL);
+	bloomfilter *w_bf = prev_data->writeset.load();
+	bloomfilter *r_bf = prev_data->readset.load();
+      //(*prev)->shared_data_lock.writer_lock();
+	if (bf->intersects(w_bf))
+	  {
+	    prev_data->invalid_reason.store(RESTART_LOCKED_WRITE, memory_order_release);
+	  //prev_data->invalid.store(true, memory_order_release);
+	  }
+	if (bf->intersects(r_bf))
+	  {
+	    prev_data->invalid_reason.store(RESTART_LOCKED_READ, memory_order_release);
+	  //prev_data->invalid.store(true, memory_order_release);
+	  }
+      //(*prev)->shared_data_lock.writer_unlock();
+      }
+    }
+  tx->thread_lock.reader_unlock();
 }
 
 
@@ -382,7 +422,7 @@ namespace
 } // Anon namespace
 
 void
-bloomfilter::add_address(void *ptr, size_t len)
+bloomfilter::add_address(const void *ptr, size_t len)
 {
   uint32_t tmp_bf[BLOOMFILTER_LENGTH] = {};
   hash_bit_accessor hb;
@@ -469,7 +509,7 @@ invalbrid_tx_data::invalbrid_tx_data()
 {
   log_size = 0;
   local_commit_sequence = 0;
-  invalid.store(false);
+//invalid.store(false);
   invalid_reason.store(NO_RESTART);
   readset.store(new bloomfilter());
   writeset.store(new bloomfilter());
@@ -510,12 +550,11 @@ invalbrid_tx_data::clear()
   if (write_log != NULL)
     write_log->rollback();
   local_commit_sequence = 0;
-  invalid.store(false);
-  invalid_reason.store(NO_RESTART);
   bloomfilter *ws = writeset.load();
   bloomfilter *rs = readset.load();
   ws->clear();
   rs->clear();
+  invalid_reason.store(NO_RESTART, memory_order_release);
 }
 
 gtm_transaction_data*
@@ -534,8 +573,8 @@ invalbrid_tx_data::save()
   ret_rs->set(rs);
   ret->log_size = log_size;
   ret->local_commit_sequence = local_commit_sequence;
-  ret->invalid.store(invalid.load());
-  ret->invalid_reason.store(invalid_reason);
+  // The invalid flag and reason are not save, because they are not restored by
+  // load(), see load().
   return (gtm_transaction_data*) ret;
 }
 

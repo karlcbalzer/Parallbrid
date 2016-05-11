@@ -38,7 +38,7 @@ namespace GTM HIDDEN {
     atomic<uint32_t> bf[BLOOMFILTER_LENGTH] = {};
     
     // Add an address and the following ones, according to len, to the bloomfilter.
-    void add_address (void *, size_t len = 1);
+    void add_address (const void *, size_t len = 1);
     // Adds a bloomfilter to this bloomfilter.
     void set (const bloomfilter *);
     // Check for an intersection between the bloomfilters.
@@ -62,13 +62,12 @@ namespace GTM HIDDEN {
     // The write_log stores the speculative writes. 
     gtm_log *write_log;
     size_t log_size;
-    // The hash map is used for an easy access to the speculative writes.
-    // The invalid flag and the local commit sequenz are used by specsws 
+    // The local commit sequence is used by specsws to detect whether an sglsw
+    // transaction is or was executing since the specsw transaction started.
     uint32_t local_commit_sequence;
-    // The invalid flag that is set by other transactions, if they invalidate
-    // the transaction this transaction data belongs to. The flag is enclosed
-    // in an atomic to ensure memory order when threads access it.
-    atomic<bool> invalid;
+    // The invalid_reason is NO_RESTART if the transaaction executed without
+    // conflicts. It is set to a gtm_restart_reason, if this transaction gets
+    // invalidated by a committing transaction.
     atomic<gtm_restart_reason> invalid_reason;
     
     void clear();
@@ -116,6 +115,8 @@ namespace GTM HIDDEN {
     // Restart routine for any transaction of this method_group. The restart 
     // resaon indicates what happend.
     void restart(gtm_restart_reason rr);
+    
+    static void invalidate();
     
     invalbrid_mg();
       
