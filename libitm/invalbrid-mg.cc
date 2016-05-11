@@ -388,18 +388,14 @@ invalbrid_mg::invalidate()
 	assert(prev_data != NULL);
 	bloomfilter *w_bf = prev_data->writeset.load();
 	bloomfilter *r_bf = prev_data->readset.load();
-      //(*prev)->shared_data_lock.writer_lock();
 	if (bf->intersects(w_bf))
 	  {
 	    prev_data->invalid_reason.store(RESTART_LOCKED_WRITE, memory_order_release);
-	  //prev_data->invalid.store(true, memory_order_release);
 	  }
 	if (bf->intersects(r_bf))
 	  {
 	    prev_data->invalid_reason.store(RESTART_LOCKED_READ, memory_order_release);
-	  //prev_data->invalid.store(true, memory_order_release);
 	  }
-      //(*prev)->shared_data_lock.writer_unlock();
       }
     }
   tx->thread_lock.reader_unlock();
@@ -509,7 +505,6 @@ invalbrid_tx_data::invalbrid_tx_data()
 {
   log_size = 0;
   local_commit_sequence = 0;
-//invalid.store(false);
   invalid_reason.store(NO_RESTART);
   readset.store(new bloomfilter());
   writeset.store(new bloomfilter());

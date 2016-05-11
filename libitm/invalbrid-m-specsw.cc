@@ -288,6 +288,7 @@ public:
 	// to release the commit lock.
 	if (tx->state & gtm_thread::STATE_SERIAL)
 	  pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+	  invalbrid_mg::sw_cnt--;
 	clear();
       }
   }
