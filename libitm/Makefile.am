@@ -62,7 +62,7 @@ libitm_la_SOURCES = \
 	query.cc useraction.cc util.cc \
 	sjlj.S tls.cc \
 	invalbrid-mg.cc invalbrid-m-sglsw.cc invalbrid-m-specsw.cc \
-	invalbrid-m-irrevocsw.cc
+	invalbrid-m-irrevocsw.cc bloomfilter.cc
 
 if ARCH_ARM
 libitm_la_SOURCES += hwcap.cc

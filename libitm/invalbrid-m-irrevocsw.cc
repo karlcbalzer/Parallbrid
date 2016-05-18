@@ -1,5 +1,5 @@
 /* Copyright (C) 2012-2016 Free Software Foundation, Inc.
-   Contributed by Karl Balzer <Salamahachy@googlemail.com>.
+   Contributed by Karl Balzer <Karl.C.Balzer@gmail.com>.
 
    This file is part of the GNU Transactional Memory Library (libitm).
 

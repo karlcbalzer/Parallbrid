@@ -1,5 +1,5 @@
 /* Copyright (C) 2012-2016 Free Software Foundation, Inc.
-   Contributed by Karl Balzer <Salamahachy@googlemail.com>.
+   Contributed by Karl Balzer <Karl.C.Balzer@gmail.com>.
 
    This file is part of the GNU Transactional Memory Library (libitm).
 
@@ -25,36 +25,15 @@
 #define INVALBRID_MG_H
 
 #include "libitm_i.h"
+#include "bloomfilter.h"
 #include <pthread.h>
 
 
-#define BLOOMFILTER_LENGTH 32
 #define HW_RESTARTS 10
 #define SW_RESTARTS 5
 
 namespace GTM HIDDEN {
-  struct bloomfilter
-  {
-    atomic<uint32_t> bf[BLOOMFILTER_LENGTH] = {};
-    
-    // Add an address and the following ones, according to len, to the bloomfilter.
-    void add_address (const void *, size_t len = 1);
-    // Adds a bloomfilter to this bloomfilter.
-    void set (const bloomfilter *);
-    // Check for an intersection between the bloomfilters.
-    bool intersects (const bloomfilter *);
-    // Returns true if the bloomfilter is empty.
-    bool empty ();
-    
-    void clear();
-    
-    
-    static void *operator new(size_t);
-    static void operator delete(void *);
-    
-  }; // bloomfilter
-  
-  struct invalbrid_tx_data: public gtm_transaction_data
+struct invalbrid_tx_data: public gtm_transaction_data
   {
     // Bloomfilter for read and write set.
     atomic<bloomfilter*> readset;

@@ -1,5 +1,5 @@
 /* Copyright (C) 2012-2016 Free Software Foundation, Inc.
-   Contributed by Karl Balzer <Salamahachy@googlemail.com>.
+   Contributed by Karl Balzer <Karl.C.Balzer@gmail.com>.
 
    This file is part of the GNU Transactional Memory Library (libitm).
 
@@ -288,7 +288,7 @@ public:
 	// to release the commit lock.
 	if (tx->state & gtm_thread::STATE_SERIAL)
 	  pthread_mutex_unlock(&invalbrid_mg::commit_lock);
-	  invalbrid_mg::sw_cnt--;
+	invalbrid_mg::sw_cnt--;
 	clear();
       }
   }

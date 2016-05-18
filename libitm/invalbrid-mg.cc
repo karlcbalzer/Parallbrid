@@ -1,5 +1,5 @@
 /* Copyright (C) 2012-2016 Free Software Foundation, Inc.
-   Contributed by Karl Balzer <Salamahachy@googlemail.com>.
+   Contributed by Karl Balzer <Karl.C.Balzer@gmail.com>.
 
    This file is part of the GNU Transactional Memory Library (libitm).
 
@@ -26,9 +26,7 @@
 #include "invalbrid-mg.h"
 
 
-
 using namespace GTM;
-
 
 // Invalbrids static initialization.
 pthread_mutex_t invalbrid_mg::commit_lock
@@ -401,106 +399,9 @@ invalbrid_mg::invalidate()
   tx->thread_lock.reader_unlock();
 }
 
+// Invalbrid tx data implementation.
 
-// Bloomfilter implementation.
-
-namespace
-{
-  union hash_bit_accessor 
-  {
-    void *ptr;	//TODO hash the pointer
-  #ifdef __x86_64__
-    uint8_t blocks[8];
-  #else
-    uint8_t blocks[4];
-  #endif
-  };
-} // Anon namespace
-
-void
-bloomfilter::add_address(const void *ptr, size_t len)
-{
-  uint32_t tmp_bf[BLOOMFILTER_LENGTH] = {};
-  hash_bit_accessor hb;
-  for (size_t j = 0; j<len; j++)
-  {
-    hb.ptr = (uint8_t*)ptr + j;
-    for (int i=0; i<4; i++)
-    {
-      uint32_t block;
-    #ifdef __x86_64__
-      block = hb.blocks[i*2];
-    #else
-      block = hb.blocks[i];
-    #endif
-      tmp_bf[i*8+block/32] |= 0x01 << block%32;
-    }
-  }
-  for (int i=0; i<BLOOMFILTER_LENGTH; i++)
-    if (tmp_bf[i] != 0)
-      bf[i] |= tmp_bf[i];
-}
-
-void
-bloomfilter::set(const bloomfilter* bfilter)
-{
-  const atomic<uint32_t> *data = bfilter->bf;
-  for (int i=0; i<32; i++)
-    bf[i].store(data[i].load()); 
-}
-
-bool
-bloomfilter::intersects(const bloomfilter* bfilter)
-{
-  bool result = true;
-  const atomic<uint32_t> *data = bfilter->bf;
-  for (int i=0; i<4; i++)
-  {
-    uint32_t block_result = 0;
-    for (int j=0; j<8; j++)
-      block_result |= bf[i*8+j].load() & data[i*8+j].load();
-    if (block_result == 0)
-      result = false;
-  }
-  return result;
-}
-
-bool
-bloomfilter::empty ()
-{
-  bool ret = true;
-  for (int i=0; i<32; i++)
-    if (bf[i].load() == 0) ret = false;
-  return ret;
-}
-
-void
-bloomfilter::clear()
-{
-  for (int i=0; i<32; i++) bf[i].store(0);
-}
-
-// Allocate a bloomfilter structure.
-void *
-bloomfilter::operator new (size_t s)
-{
-  void *bf;
-
-  assert(s == sizeof(bloomfilter));
-
-  bf = xmalloc (sizeof (bloomfilter), true);
-
-  return bf;
-}
-
-// Free the given bloomfilter.
-void
-bloomfilter::operator delete(void *bf)
-{
-  free(bf);
-}
-
-//Constructor and destructor for invalbrid transactional data.
+// Constructor and destructor for invalbrid transactional data.
 invalbrid_tx_data::invalbrid_tx_data()
 {
   log_size = 0;
