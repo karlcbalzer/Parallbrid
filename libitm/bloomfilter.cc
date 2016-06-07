@@ -69,8 +69,8 @@ namespace
       h1 ^= h0;  h0 = Rot64(h0,63);  h1 += h0;
   }
   
-  // The short version of Jenkins SpookyHash function. This version is shortend
-  // because we only hash addresses, that are 4 or 8 bytes long.
+  // The short version of Jenkins SpookyHash function. This version is
+  // simplified, because we only hash addresses, that are 4 or 8 bytes long.
   void spooky_hash(const void *ptr, uint64_t *hash)
   {
       // a and b are the seeds for this hash function.

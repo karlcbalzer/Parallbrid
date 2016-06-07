@@ -348,7 +348,7 @@ invalbrid_mg::restart(gtm_restart_reason rr)
 	    else
 	      {
 		set_abi_disp(dispatch_invalbrid_irrevocsw()); 
-		ret = a_runUninstrumentedCode;
+		ret = a_runInstrumentedCode;
 	      }
 	  }
 	  // If the transaction may abort, we have to use specsw in serial mode.
@@ -469,7 +469,7 @@ invalbrid_tx_data::save()
   ret_rs->set(rs);
   ret->log_size = log_size;
   ret->local_commit_sequence = local_commit_sequence;
-  // The invalid flag and reason are not save, because they are not restored by
+  // The invalid flag and reason are not saved, because they are not restored by
   // load(), see load().
   return (gtm_transaction_data*) ret;
 }

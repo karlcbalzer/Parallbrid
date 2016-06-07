@@ -23,7 +23,8 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include "libitm_i.h"
-#include "invalbrid-mg.h" 
+#include "invalbrid-mg.h"
+#include <stdio.h> 
 
 using namespace GTM;
 
@@ -83,14 +84,9 @@ public:
   { 
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
-    // If this is a new transaction, acquire the commit lock. But if this is an
-    // irrevocable transaction, that got upgraded to an irrevocsw transaction, we
-    // already have the commit lock, so we don't need to take it.
-    if (likely(!(tx->state & gtm_thread::STATE_SERIAL)))
-      pthread_mutex_lock(&invalbrid_mg::commit_lock);
+    // Acquire the commit lock. 
+    pthread_mutex_lock(&invalbrid_mg::commit_lock);
     mg->committing_tx.store(tx);
-    // Increment the commit sequenze to an odd value, to stop software
-    // transactions that are active and new ones from starting.
     tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE 
 	      | gtm_thread::STATE_SOFTWARE; 
     tx->shared_data_lock.writer_lock();
