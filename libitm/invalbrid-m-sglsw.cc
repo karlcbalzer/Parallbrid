@@ -73,6 +73,7 @@ public:
     // already have the commit lock, so we don't need to take it.
     if (likely(!(tx->state & gtm_thread::STATE_SERIAL)))
       pthread_mutex_lock(&invalbrid_mg::commit_lock);
+    invalbrid_mg::commit_lock_available = false;
     // Increment the commit sequenze to an odd value, to stop software
     // transactions that are active and new ones from starting.
     mg->commit_sequence++;
@@ -92,6 +93,7 @@ public:
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
     mg->commit_sequence++;
+    invalbrid_mg::commit_lock_available = true;
     pthread_mutex_unlock(&invalbrid_mg::commit_lock);
     tx->state = 0;
     tx->shared_data_lock.writer_lock();

@@ -66,6 +66,7 @@ struct invalbrid_tx_data: public gtm_transaction_data
     // The commit lock and the software transaction counter are static, to be
     // easy accesable for hardware transactions. 
     static pthread_mutex_t commit_lock;
+    static bool commit_lock_available;
     static atomic<uint32_t> sw_cnt __attribute__ ((visibility ("default")));
     atomic<uint32_t> commit_sequence;
     uint32_t hw_post_commit;

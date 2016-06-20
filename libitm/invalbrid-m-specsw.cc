@@ -188,6 +188,7 @@ public:
       {
 	pthread_mutex_lock(&invalbrid_mg::commit_lock);
 	tx->shared_state |= gtm_thread::STATE_SERIAL;
+    invalbrid_mg::commit_lock_available = false;
       }
     uint32_t local_cs = mg->commit_sequence.load();
     while (local_cs & 1)
@@ -230,6 +231,7 @@ public:
 	// Clear the tx data.
 	if (tx->state & gtm_thread::STATE_SERIAL)
 	  pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+    invalbrid_mg::commit_lock_available = false;
 	clear();
 	invalbrid_mg::sw_cnt--;
 	return NO_RESTART;
@@ -243,6 +245,7 @@ public:
     gtm_restart_reason rr = validate();
     if (rr != NO_RESTART)
       {
+    invalbrid_mg::commit_lock_available = true;
 	pthread_mutex_unlock(&invalbrid_mg::commit_lock);
 	return rr;
       }
@@ -253,6 +256,7 @@ public:
     invalbrid_mg::invalidate();
     // Restore committing_tx_data.
     mg->committing_tx.store(0);
+    invalbrid_mg::commit_lock_available = true;
     pthread_mutex_unlock(&invalbrid_mg::commit_lock);
     // Clear the tx data.
     clear();
