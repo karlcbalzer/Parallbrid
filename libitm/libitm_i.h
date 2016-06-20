@@ -79,6 +79,8 @@ enum invalbrid_tx_types
   SPEC_SW,
   SGL_SW,
   IRREVOC_SW,
+  BFHW,
+  LITEHW,
   NUM_TYPES
 };
 #endif
@@ -119,7 +121,7 @@ struct gtm_thread;
 // Container for transaction specific data, like read and write set.
 // This object only exsist 1 time per thread and is destroyed on gtm_threads
 // destruction. When a transaction commits, this container has to be resetted.
-struct gtm_transaction_data 
+struct gtm_transaction_data
 {
   virtual ~gtm_transaction_data() {};
   // Should return a pointer to an immutable transaction data object, which can
@@ -127,10 +129,10 @@ struct gtm_transaction_data
   // when using new in this method, because you then have to handle delete in
   // the dispatch rollback or load routine.
   virtual gtm_transaction_data* save() = 0;
-  // Sets this transaction datas values to the values given as an argument. 
+  // Sets this transaction datas values to the values given as an argument.
   virtual void load(gtm_transaction_data *) = 0;
   // Clear prepares this container to be used by the next transaction.
-  virtual void clear() = 0; 
+  virtual void clear() = 0;
 };
 
 // A transaction checkpoint: data that has to be saved and restored when doing
@@ -161,17 +163,17 @@ struct rw_atomic_lock
 {
   atomic<int32_t> writer;
   atomic<int32_t> readers;
-  
+
   void writer_lock();
   void writer_unlock();
   void reader_lock();
   void reader_unlock();
-  
+
   rw_atomic_lock();
 };
 
 // A log for writes. It can be used as a write buffer for lazy version
-// management. 
+// management.
 struct gtm_log
 {
   vector<gtm_word> log_data;
@@ -187,7 +189,7 @@ struct gtm_log
     memcpy(&entry[2], value_ptr, len);
     return entry;
   }
-  
+
   gtm_word* log_memset(const void *addr_ptr, const int c, size_t len)
   {
     size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
@@ -201,13 +203,13 @@ struct gtm_log
   // Sets the log size to 'until_size' thus removing the last entrys.
   void rollback (size_t until_size = 0) { log_data.set_size(until_size); }
   size_t size() const { return log_data.size(); }
-  
+
   void load_value(void*,const void*, size_t);
-  
+
   // In local.cc
   // Commits the log entrys  to memory.
   void commit (gtm_thread* tx);
-  
+
   static void *operator new(size_t);
   static void operator delete(void *);
 };
@@ -265,7 +267,7 @@ struct gtm_thread
 
   // Data used by alloc.c for the malloc/free undo log.
   aa_tree<uintptr_t, gtm_alloc_action> alloc_actions;
-  
+
   // Undo log, used by th ITM logging functions.
   gtm_undolog undolog;
 
@@ -318,19 +320,19 @@ struct gtm_thread
   // other counters are total values for all previously executed transactions.
   uint32_t restart_reason[NUM_RESTARTS];
   uint32_t restart_total;
-  
+
   #ifdef DEBUG_INVALBRID
     // A counter that records transaction types started.
     uint32_t tx_types_started[NUM_TYPES];
     // A counter that records transaction types commited.
     uint32_t tx_types_commited[NUM_TYPES];
   #endif
-  
+
   // *** The shared part of gtm_thread starts here. ***
   // Shared state is on separate cachelines to avoid false sharing with
   // thread-local parts of gtm_thread.
-  
-  // This thread lock is for creating, destroying and iterating over threads. 
+
+  // This thread lock is for creating, destroying and iterating over threads.
   static rw_atomic_lock thread_lock;
 
   // Points to the next thread in the list of all threads.
@@ -341,11 +343,17 @@ struct gtm_thread
   // If this transaction is inactive, shared_state is ~0. Otherwise, this is
   // an active or serial transaction.
   atomic<gtm_word> shared_state;
-  
+
   // The transaction specific data, used by the dispatches, implemented in the
   // method groups.
   atomic<gtm_transaction_data*> tx_data;
 
+#ifdef USE_HTM_FASTPATH
+  // Since hardware transactions can't use atomics, we need non-atomic
+  // transactional data, if a hardware transaction shall perform conflict
+  // detection with software transactions.
+  gtm_transaction_data* hw_tx_data;
+#endif
   // The head of the list of all threads' transactions.
   static gtm_thread* list_of_threads;
   // The number of all registered threads.
@@ -363,13 +371,13 @@ struct gtm_thread
 
   // In beginend.cc
   void rollback (gtm_transaction_cp *cp = 0, bool aborting = false);
-  
+
   gtm_thread();
   ~gtm_thread();
 
   static void *operator new(size_t);
   static void operator delete(void *);
-  
+
   // In eh_cpp.cc
   void init_cpp_exceptions ();
   void revert_cpp_exceptions (gtm_transaction_cp *cp = 0);
@@ -385,8 +393,8 @@ struct gtm_thread
 
 namespace GTM HIDDEN {
 
-// The global variable for the transaction ids. The block size variable is for 
-// allocating a chunk of ids to minimize contention on nested transactions.  
+// The global variable for the transaction ids. The block size variable is for
+// allocating a chunk of ids to minimize contention on nested transactions.
 #ifdef HAVE_64BIT_SYNC_BUILTINS
 static atomic<_ITM_transactionId_t> global_tid;
 #else
@@ -402,21 +410,22 @@ static const _ITM_transactionId_t tid_block_size = 1 << 16;
 extern uint64_t gtm_spin_count_var;
 
 extern "C" uint32_t GTM_longjmp (uint32_t, const gtm_jmpbuf *, uint32_t)
-	ITM_NORETURN ITM_REGPARM;
+    ITM_NORETURN ITM_REGPARM;
 
 extern "C" void GTM_LB (const void *, size_t) ITM_REGPARM;
 
 extern void GTM_error (const char *fmt, ...)
-	__attribute__((format (printf, 1, 2)));
+    __attribute__((format (printf, 1, 2)));
 extern void GTM_fatal (const char *fmt, ...)
-	__attribute__((noreturn, format (printf, 1, 2)));
-	
+    __attribute__((noreturn, format (printf, 1, 2)));
+
 extern void set_default_method_group();
 
 // Methods that are used by the method groups.
 extern abi_dispatch *dispatch_invalbrid_sglsw();
 extern abi_dispatch *dispatch_invalbrid_specsw();
 extern abi_dispatch *dispatch_invalbrid_irrevocsw();
+extern abi_dispatch *dispatch_invalbrid_bfhw();
 
 // The method groups that can be uses
 extern method_group *method_group_invalbrid();
@@ -425,3 +434,4 @@ extern method_group *method_group_invalbrid();
 } // namespace GTM
 
 #endif // LIBITM_I_H
+

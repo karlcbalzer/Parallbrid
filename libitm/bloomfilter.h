@@ -21,7 +21,7 @@
    a copy of the GCC Runtime Library Exception along with this program;
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
-   
+
 #ifndef BLOOMFILTER
 #define BLOOMFILTER
 
@@ -35,7 +35,7 @@ namespace GTM HIDDEN {
   struct bloomfilter
   {
     atomic<uint64_t> bf[BLOOMFILTER_BLOCKS] = {};
-    
+
     // Add an address and the following ones, according to len, to the bloomfilter.
     void add_address (const void *, size_t len);
     // Sets this bloomfilter to the value of the given bloomfilter.
@@ -44,14 +44,31 @@ namespace GTM HIDDEN {
     bool intersects (const bloomfilter *);
     // Returns true if the bloomfilter is empty.
     bool empty ();
-    
+
     void clear();
-    
-    
+
+
     static void *operator new(size_t);
     static void operator delete(void *);
-    
+
   }; // bloomfilter
+
+  // bloomfilter without atomics for hardware transactions
+  struct hw_bloomfilter
+  {
+    uint64_t bf[BLOOMFILTER_BLOCKS] = {};
+
+    // Add an address and the following ones, according to len, to the bloomfilter.
+    void add_address (const void *, size_t len);
+    // Check for an intersection between the bloomfilters.
+    bool intersects (const bloomfilter *);
+    // Returns true if the bloomfilter is empty.
+    bool empty ();
+
+    void clear();
+
+  }; // hw_bloomfilter
 }
 
 #endif
+

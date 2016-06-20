@@ -21,7 +21,7 @@
    a copy of the GCC Runtime Library Exception along with this program;
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
-   
+
 #include "bloomfilter.h"
 
 using namespace GTM;
@@ -34,15 +34,15 @@ namespace
   //  * is a not-very-regular mix of 1's and 0's
   //  * does not need any other special mathematical properties
   static const uint64_t sc_const = 0xdeadbeefdeadbeefLL;
-  
-  
+
+
   // left rotate a 64-bit value by k bits
-  static inline uint64_t 
+  static inline uint64_t
   Rot64(uint64_t x, int k)
   {
       return (x << k) | (x >> (64 - k));
   }
-  
+
   // Mix all 4 inputs together so that h0, h1 are a hash of them all.
   //
   // For two inputs differing in just the input bits
@@ -53,7 +53,7 @@ namespace
   // with probability 50 +- .3% (it is probably better than that)
   // For every pair of input bits,
   // with probability 50 +- .75% (the worst case is approximately that)
-  static inline void 
+  static inline void
   ShortEnd(uint64_t &h0, uint64_t &h1, uint64_t &h2, uint64_t &h3)
   {
       h3 ^= h2;  h2 = Rot64(h2,15);  h3 += h2;
@@ -68,7 +68,7 @@ namespace
       h0 ^= h3;  h3 = Rot64(h3,25);  h0 += h3;
       h1 ^= h0;  h0 = Rot64(h0,63);  h1 += h0;
   }
-  
+
   // The short version of Jenkins SpookyHash function. This version is
   // simplified, because we only hash addresses, that are 4 or 8 bytes long.
   void spooky_hash(const void *ptr, uint64_t *hash)
@@ -86,6 +86,7 @@ namespace
   }
 } // Anon namespace
 
+// Bloomfilter definitions
 void
 bloomfilter::add_address(const void *ptr, size_t len)
 {
@@ -110,7 +111,7 @@ bloomfilter::set(const bloomfilter* bfilter)
 {
   const atomic<uint64_t> *data = bfilter->bf;
   for (int i=0; i<BLOOMFILTER_BLOCKS; i++)
-    bf[i].store(data[i].load()); 
+    bf[i].store(data[i].load());
 }
 
 bool
@@ -162,3 +163,48 @@ bloomfilter::operator delete(void *bf)
 {
   free(bf);
 }
+
+// Hardware bloomfilter definitions
+void
+hw_bloomfilter::add_address(const void *ptr, size_t len)
+{
+  for (size_t j = 0; j<len; j++)
+  {
+    uint64_t hash;
+    // Hash the pointer so it can be added to the filter.
+    spooky_hash((uint8_t*)ptr + j, &hash);
+    // Determine the bit to be set in the bloomfilter.
+    int bit = hash % BLOOMFILTER_LENGTH;
+    // Set the bit.
+    bf[bit/64] |= (1 << (bit % 64));
+  }
+}
+
+bool
+hw_bloomfilter::intersects(const bloomfilter *bfilter)
+{
+  const atomic<uint64_t> *data = bfilter->bf;
+  for (int i=0; i<BLOOMFILTER_BLOCKS; i++)
+  {
+    // If there is a bit that is set in both filters, then there is an
+    // intersection of the bloomfilters. This means, that there is the
+    // possibilty of an element beeing part of both filters.
+    if (bf[i] & data[i].load())
+      return true;
+  }
+  return false;
+}
+
+bool hw_bloomfilter::empty()
+{
+  bool ret = true;
+  for (int i=0; i<BLOOMFILTER_BLOCKS; i++)
+    if (bf[i] != 0) ret = false;
+  return ret;
+}
+
+void hw_bloomfilter::clear()
+{
+  for (int i=0; i<BLOOMFILTER_BLOCKS; i++) bf[i] = 0;
+}
+

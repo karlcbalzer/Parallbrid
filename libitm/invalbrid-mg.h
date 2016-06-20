@@ -38,7 +38,7 @@ struct invalbrid_tx_data: public gtm_transaction_data
     // Bloomfilter for read and write set.
     atomic<bloomfilter*> readset;
     atomic<bloomfilter*> writeset;
-    // The write_log stores the speculative writes. 
+    // The write_log stores the speculative writes.
     gtm_log *write_log;
     size_t log_size;
     // The local commit sequence is used by specsws to detect whether an sglsw
@@ -48,32 +48,45 @@ struct invalbrid_tx_data: public gtm_transaction_data
     // conflicts. It is set to a gtm_restart_reason, if this transaction gets
     // invalidated by a committing transaction.
     atomic<gtm_restart_reason> invalid_reason;
-    
+
     void clear();
     void load (gtm_transaction_data*);
     gtm_transaction_data* save();
-    
-    
+
+
     static void *operator new(size_t);
     static void operator delete(void *);
-    
+
     invalbrid_tx_data();
     ~invalbrid_tx_data();
   };
-  
+
+struct invalbrid_hw_tx_data: public gtm_transaction_data
+  {
+    hw_bloomfilter* writeset;
+
+    invalbrid_hw_tx_data();
+    ~invalbrid_hw_tx_data();
+
+    void clear();
+    void load (gtm_transaction_data*);
+    gtm_transaction_data* save();
+  };
+
   struct invalbrid_mg : public method_group
   {
     // The commit lock and the software transaction counter are static, to be
-    // easy accesable for hardware transactions. 
+    // easy accesable for hardware transactions.
     static pthread_mutex_t commit_lock;
     static bool commit_lock_available;
     static atomic<uint32_t> sw_cnt __attribute__ ((visibility ("default")));
     atomic<uint32_t> commit_sequence;
-    uint32_t hw_post_commit;
-    
+    static uint32_t hw_post_commit;
+    static rw_atomic_lock hw_post_commit_lock;
+
     // A pointer to the tx_data of the transaction, that holds the commit lock.
     atomic<gtm_thread*> committing_tx;
-    
+
     // Decides which TM method should be used for the transaction, sets up the
     // appropiate meta data.
     uint32_t begin(uint32_t, const gtm_jmpbuf *);
@@ -90,18 +103,19 @@ struct invalbrid_tx_data: public gtm_transaction_data
     // Gives the caller serial access without changing the transaction state to
     // serial. This is needed for changes in the clone table.
     void acquire_serial_access();
-    // Releases the serial access acquired in the function above. 
+    // Releases the serial access acquired in the function above.
     void release_serial_access();
-    // Restart routine for any transaction of this method_group. The restart 
+    // Restart routine for any transaction of this method_group. The restart
     // resaon indicates what happend.
     void restart(gtm_restart_reason rr);
-    
+
     static void invalidate();
-    
+
     invalbrid_mg();
-      
+
   }; // invalbrid_mg
-  
+
 } // GTM namespace
 
 #endif // INVALBRIDMG_H
+

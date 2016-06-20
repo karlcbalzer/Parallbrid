@@ -26,12 +26,15 @@
 #include "invalbrid-mg.h"
 #include <stdio.h>
 
+
 using namespace GTM;
 
 // Invalbrids static initialization.
 pthread_mutex_t invalbrid_mg::commit_lock
     __attribute__((aligned(HW_CACHELINE_SIZE)));
 atomic<uint32_t> invalbrid_mg::sw_cnt;
+rw_atomic_lock invalbrid_mg::hw_post_commit_lock;
+uint32_t invalbrid_mg::hw_post_commit = 0;
 bool invalbrid_mg::commit_lock_available = true;
 
 invalbrid_mg::invalbrid_mg()
@@ -39,7 +42,6 @@ invalbrid_mg::invalbrid_mg()
   pthread_mutex_init(&commit_lock, NULL);
   sw_cnt.store(0);
   commit_sequence.store(0);
-  hw_post_commit = 0;
   committing_tx.store(0);
 }
 
@@ -80,8 +82,8 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
           else
           {
             // This is a BFHW transaction.
-            // return a_runInstrumentedCode;
-            htm_abort();
+            tx->nesting++;
+            return a_runInstrumentedCode;
           }
         }
         else
@@ -101,32 +103,54 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
       {
         for ( ;restarts < HW_RESTARTS; ++restarts)
         {
-          uint32_t ret = htm_begin();
-          if (htm_begin_success(ret))
+          // Get the number of running software transactions.
+          uint32_t sw_cnt = invalbrid_mg::sw_cnt.load();
+          // If there is no thread object, but we need to use BFHW transactions, create one.
+          if (tx == NULL && sw_cnt != 0)
+          {
+            tx = new gtm_thread();
+            set_gtm_thr(tx);
+          }
+          uint32_t htm_ret = htm_begin();
+          if (htm_begin_success(htm_ret))
           {
             // Htm transaction started successfully.
-            if (invalbrid_mg::commit_lock_available) //TODO TODO TODO read lock in asm
+            if (invalbrid_mg::commit_lock_available)
             {
-              if (invalbrid_mg::sw_cnt == 0 && prop & pr_uninstrumentedCode) // TODO TODO TODO get sw_cnt without atomic usage.
+              if (sw_cnt == 0 && prop & pr_uninstrumentedCode)
               {
-                // No software transactions are running, so start a LiteHW transaction.
-                return a_runUninstrumentedCode;
+                // No software transactions should be running, so start a LiteHW transaction.
+                // We have to subscribe to the software transaction count so read it again.
+                if (invalbrid_mg::sw_cnt == 0)
+                  return a_runUninstrumentedCode;
+                else
+                  htm_abort();
               }
               else
               {
                 // There are software transactions present, so use BFHW transactions.
-                htm_abort();
+                tx->nesting = 1;
+                set_abi_dispatch(dispatch_invalbrid_bfhw);
+                abi_disp->begin();
+                return a_runInstrumentedCode;
               }
             }
             else
             {
-              // For opacity reasons, hardware transactions can not run while changes are commited to memmory.
-              // Hardware transactions could read inconsistant states from the nontx access to memmory by the software transaction.
+              // For opacity reasons, hardware transactions can not run while changes are
+              // commited to memmory. Because hardware transactions could read inconsistant
+              // states from the non-tx access to memmory by the software transaction.
               htm_abort();
             }
           }
-          if (!htm_abort_should_retry(ret))
+          // The hardware transaction has aborted. We know decide if we should retry. 
+          if (!htm_abort_should_retry(htm_ret))
             break;
+          // If there is a tx_object present, 
+          if (tx != NULL)
+          {
+            tx->restart_total = restarts;
+          }
         }
       }
       if (tx == NULL)
@@ -314,38 +338,56 @@ invalbrid_mg::commit_EH(void *exc_ptr)
   gtm_thread *tx = gtm_thr();
 
 #ifdef USE_HTM_FASTPATH
-  if (tx == NULL || tx->state == 0 || tx->state & gtm_thread::STATE_HARDWARE)
+  if (tx == NULL || tx->state == 0)
   {
     htm_commit();
+    #ifdef DEBUG_INVALBRID
+    if (htm_transaction_active())
+      printf("LiteHW transaction finished\n");
+    #endif
   }
   else
   {
-#endif
-
-    tx->nesting--;
-    if (tx->parent_txns.size() > 0)
+    if (tx->state & gtm_thread::STATE_HARDWARE)
     {
-      gtm_transaction_cp *cp = tx->parent_txns.pop();
-      tx->commit_allocations(false, &cp->alloc_actions);
-      cp->commit(tx);
-    }
-    if (tx->nesting == 0)
-    {
-      gtm_restart_reason rr;
-      rr = abi_disp()->trycommit();
-      if (rr != NO_RESTART)
+      if (tx->nesting > 1)
       {
-        if (exc_ptr != NULL)
-          tx->eh_in_flight = exc_ptr;
-        restart(rr);
+        tx->nesting--;
+        htm_commit();
       }
-      tx->restart_total = 0;
-      tx->cxa_catch_count = 0;
-      tx->undolog.commit();
-      tx->commit_user_actions();
-      tx->commit_allocations (false,0);
+      else
+      {
+        abi_disp()->trycommit();
+      }
     }
+    else
+    {
+#endif
+      tx->nesting--;
+      if (tx->parent_txns.size() > 0)
+      {
+        gtm_transaction_cp *cp = tx->parent_txns.pop();
+        tx->commit_allocations(false, &cp->alloc_actions);
+        cp->commit(tx);
+      }
+      if (tx->nesting == 0)
+      {
+        gtm_restart_reason rr;
+        rr = abi_disp()->trycommit();
+        if (rr != NO_RESTART)
+        {
+          if (exc_ptr != NULL)
+            tx->eh_in_flight = exc_ptr;
+          restart(rr);
+        }
+        tx->restart_total = 0;
+        tx->cxa_catch_count = 0;
+        tx->undolog.commit();
+        tx->commit_user_actions();
+        tx->commit_allocations (false,0);
+      }
 #ifdef USE_HTM_FASTPATH
+    }
   }
 #endif
 }
@@ -589,5 +631,33 @@ method_group *
 GTM::method_group_invalbrid()
 {
   return &o_invalbrid_mg;
+}
+
+invalbrid_hw_tx_data::invalbrid_hw_tx_data()
+{
+  writeset = new hw_bloomfilter();
+}
+
+invalbrid_hw_tx_data::~invalbrid_hw_tx_data()
+{
+  delete writeset;
+}
+
+void
+invalbrid_hw_tx_data::clear()
+{
+  writeset->clear();
+}
+
+void
+invalbrid_hw_tx_data::load(gtm_transaction_data *)
+{
+  // Hardware transactions don't do checkpoints, so nothing todo here.
+}
+
+gtm_transaction_data *invalbrid_hw_tx_data::save()
+{
+  // Hardware transactions don't do checkpoints, so nothing todo here.
+  return NULL;
 }
 

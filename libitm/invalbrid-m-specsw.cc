@@ -80,7 +80,16 @@ protected:
     if (w_conflict)
       return RESTART_VALIDATE_WRITE;
     // Wait while hardware transactions are in their post commit phase.
-    while (mg->hw_post_commit != 0) { cpu_relax(); }
+    invalbrid_mg::hw_post_commit_lock.reader_lock();
+    uint32_t hw_pc = invalbrid_mg::hw_post_commit;
+    invalbrid_mg::hw_post_commit_lock.reader_unlock();
+    while (hw_pc != 0) 
+    { 
+      cpu_relax();
+      invalbrid_mg::hw_post_commit_lock.reader_lock();
+      hw_pc = invalbrid_mg::hw_post_commit;
+      invalbrid_mg::hw_post_commit_lock.reader_unlock(); 
+    }
     // If this transaction has been invalidated, it has to be restartet. This is
     // handled by the caller.
     gtm_restart_reason rr = spec_data->invalid_reason.load(memory_order_acquire);
