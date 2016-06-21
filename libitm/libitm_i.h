@@ -29,7 +29,7 @@
 #ifndef LIBITM_I_H
 #define LIBITM_I_H 1
 
-#define DEBUG_INVALBRID 1
+//#define DEBUG_INVALBRID 1
 #include "libitm.h"
 #include "config.h"
 
@@ -326,6 +326,7 @@ struct gtm_thread
     uint32_t tx_types_started[NUM_TYPES];
     // A counter that records transaction types commited.
     uint32_t tx_types_commited[NUM_TYPES];
+    static atomic<uint32_t> litehw_count;
   #endif
 
   // *** The shared part of gtm_thread starts here. ***

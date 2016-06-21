@@ -34,13 +34,15 @@ pthread_mutex_t invalbrid_mg::commit_lock
     __attribute__((aligned(HW_CACHELINE_SIZE)));
 atomic<uint32_t> invalbrid_mg::sw_cnt;
 rw_atomic_lock invalbrid_mg::hw_post_commit_lock;
-uint32_t invalbrid_mg::hw_post_commit = 0;
-bool invalbrid_mg::commit_lock_available = true;
+uint32_t invalbrid_mg::hw_post_commit;
+bool invalbrid_mg::commit_lock_available;
 
 invalbrid_mg::invalbrid_mg()
 {
   pthread_mutex_init(&commit_lock, NULL);
   sw_cnt.store(0);
+  commit_lock_available = true;
+  hw_post_commit = 0;
   commit_sequence.store(0);
   committing_tx.store(0);
 }
@@ -51,7 +53,6 @@ uint32_t
 invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 {
   gtm_thread *tx = gtm_thr();
-  uint32_t ret = 0;
 
   // ??? pr_undoLogCode is not properly defined in the ABI. Are barriers
   // omitted because they are not necessary (e.g., a transaction on thread-
@@ -61,7 +62,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
     GTM_fatal("pr_undoLogCode not supported");
 
 #ifdef USE_HTM_FASTPATH
-  // Number of trys as hardwaretransaction.
+  // Number of trys as hardware transaction.
   uint32_t restarts = 0;
   // Try to run as HW transaction
   if (tx == NULL || tx->state == 0 || tx->state & gtm_thread::STATE_HARDWARE)
@@ -104,9 +105,9 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
         for ( ;restarts < HW_RESTARTS; ++restarts)
         {
           // Get the number of running software transactions.
-          uint32_t sw_cnt = invalbrid_mg::sw_cnt.load();
+          uint32_t tmp_sw_cnt = invalbrid_mg::sw_cnt.load();
           // If there is no thread object, but we need to use BFHW transactions, create one.
-          if (tx == NULL && sw_cnt != 0)
+          if (tx == NULL && tmp_sw_cnt != 0)
           {
             tx = new gtm_thread();
             set_gtm_thr(tx);
@@ -117,7 +118,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
             // Htm transaction started successfully.
             if (invalbrid_mg::commit_lock_available)
             {
-              if (sw_cnt == 0 && prop & pr_uninstrumentedCode)
+              if (tmp_sw_cnt == 0 && prop & pr_uninstrumentedCode)
               {
                 // No software transactions should be running, so start a LiteHW transaction.
                 // We have to subscribe to the software transaction count so read it again.
@@ -130,8 +131,8 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
               {
                 // There are software transactions present, so use BFHW transactions.
                 tx->nesting = 1;
-                set_abi_dispatch(dispatch_invalbrid_bfhw);
-                abi_disp->begin();
+                set_abi_disp(dispatch_invalbrid_bfhw());
+                abi_disp()->begin();
                 return a_runInstrumentedCode;
               }
             }
@@ -143,14 +144,15 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
               htm_abort();
             }
           }
-          // The hardware transaction has aborted. We know decide if we should retry. 
-          if (!htm_abort_should_retry(htm_ret))
-            break;
-          // If there is a tx_object present, 
+          // The hardware transaction has aborted. 
+          // If there is a tx_object present, set the restart count to the current number of restarts. 
           if (tx != NULL)
           {
             tx->restart_total = restarts;
           }
+          // We know decide if we should retry. 
+          if (!htm_abort_should_retry(htm_ret))
+            break;
         }
       }
       if (tx == NULL)
@@ -158,6 +160,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
         tx = new gtm_thread();
         set_gtm_thr(tx);
       }
+      // Set the restart count to the current number of restarts.
       tx->restart_total = restarts;
     }
   }
@@ -168,6 +171,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
       set_gtm_thr(tx);
     }
 #endif
+  uint32_t ret = 0;
   if(tx->nesting > 0)
     {
       // This is a nested transaction.
@@ -340,24 +344,34 @@ invalbrid_mg::commit_EH(void *exc_ptr)
 #ifdef USE_HTM_FASTPATH
   if (tx == NULL || tx->state == 0)
   {
+    // This is a LiteHW transaction. We can just call htm_commit, since we 
+    // subscribe to the commit lock and software count at the beginning of the
+    // transaction. So if something else would be running this transaction
+    // would abort.
     htm_commit();
     #ifdef DEBUG_INVALBRID
-    if (htm_transaction_active())
-      printf("LiteHW transaction finished\n");
+    gtm_thread::litehw_count++;
     #endif
   }
   else
   {
     if (tx->state & gtm_thread::STATE_HARDWARE)
     {
-      if (tx->nesting > 1)
+      tx->nesting--;
+      // This is a BFHW transaction. If the nesting level was greater than one,
+      // we decrement it and make call htm_commit.
+      if (tx->nesting > 0)
       {
-        tx->nesting--;
         htm_commit();
       }
+      // If this is the outer commit, we call the dispatch trycommit routine to
+      // commit the hardware transaction and commence the post commit phase.
       else
       {
         abi_disp()->trycommit();
+        tx->undolog.commit();
+        tx->commit_user_actions();
+        tx->commit_allocations (false,0);
       }
     }
     else
@@ -623,16 +637,29 @@ invalbrid_tx_data::load(gtm_transaction_data* tx_data)
   delete data;
 }
 
-// Invalbrid method group as a singleton.
-static invalbrid_mg o_invalbrid_mg;
+// Invalbrid hardware tx data implementation
 
-// Getter for the invalbrid method group.
-method_group *
-GTM::method_group_invalbrid()
+// Allocate a transaction data structure.
+void *
+invalbrid_hw_tx_data::operator new (size_t s)
 {
-  return &o_invalbrid_mg;
+  void *tx_data;
+
+  assert(s == sizeof(invalbrid_hw_tx_data));
+
+  tx_data = xmalloc (sizeof (invalbrid_hw_tx_data), true);
+
+  return tx_data;
 }
 
+// Free the given transaction data.
+void
+invalbrid_hw_tx_data::operator delete(void *tx_data)
+{
+  free(tx_data);
+}
+
+// Constructor and Destructor for hardware tx data.
 invalbrid_hw_tx_data::invalbrid_hw_tx_data()
 {
   writeset = new hw_bloomfilter();
@@ -659,5 +686,16 @@ gtm_transaction_data *invalbrid_hw_tx_data::save()
 {
   // Hardware transactions don't do checkpoints, so nothing todo here.
   return NULL;
+}
+
+
+// Invalbrid method group as a singleton.
+static invalbrid_mg o_invalbrid_mg;
+
+// Getter for the invalbrid method group.
+method_group *
+GTM::method_group_invalbrid()
+{
+  return &o_invalbrid_mg;
 }
 

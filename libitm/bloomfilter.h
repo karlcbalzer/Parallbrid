@@ -67,6 +67,8 @@ namespace GTM HIDDEN {
 
     void clear();
 
+    static void *operator new(size_t);
+    static void operator delete(void *);
   }; // hw_bloomfilter
 }
 

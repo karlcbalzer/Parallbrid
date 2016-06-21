@@ -208,3 +208,23 @@ void hw_bloomfilter::clear()
   for (int i=0; i<BLOOMFILTER_BLOCKS; i++) bf[i] = 0;
 }
 
+// Allocate a hardware bloomfilter structure.
+void *
+hw_bloomfilter::operator new (size_t s)
+{
+  void *bf;
+
+  assert(s == sizeof(hw_bloomfilter));
+
+  bf = xmalloc (sizeof (hw_bloomfilter), true);
+
+  return bf;
+}
+
+// Free the given hardware bloomfilter.
+void
+hw_bloomfilter::operator delete(void *bf)
+{
+  free(bf);
+}
+

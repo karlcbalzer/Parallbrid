@@ -128,7 +128,7 @@ public:
   void 
   rollback(gtm_transaction_cp *cp)
   {
-    GTM_fatal("Invalbrid-SglSW cannot rollback, because it's serial irrevocable");
+    GTM_fatal("Invalbrid-IrrevocSW cannot rollback, because it's serial irrevocable");
   }
   
 }; // sglsw_dispatch

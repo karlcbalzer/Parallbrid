@@ -46,6 +46,9 @@ rw_atomic_lock GTM::gtm_thread::thread_lock;
 
 method_group *GTM::method_group::method_gr = 0;
 
+#ifdef DEBUG_INVALBRID
+atomic<uint32_t> gtm_thread::litehw_count;
+#endif
 
 // Calls the current method_groups specific abort handler. Which in turn may
 // call a dispatch specific abort handler or abort the transaction another way.
@@ -178,8 +181,8 @@ GTM::gtm_thread::~gtm_thread()
     printf("SpecSW started:%d  SpecSW commited: %d\n", tx_types_started[SPEC_SW], tx_types_commited[SPEC_SW]);
     printf("SglSW started:%d  SglSW commited: %d\n", tx_types_started[SGL_SW], tx_types_commited[SGL_SW]);
     printf("IrrevocSW started:%d  IrrevocSW commited: %d\n", tx_types_started[IRREVOC_SW], tx_types_commited[IRREVOC_SW]);
-    printf("BFHW started:%d  BFHW commited: %d\n", tx_types_started[BFHW], tx_types_commited[BFHW]);
-    printf("LITEHW started:%d  LITEHW commited: %d\n", tx_types_started[LITEHW], tx_types_commited[LITEHW]);
+    printf("BFHW commited: %d\n", tx_types_commited[BFHW]);
+    printf("LITEHW commited: %d\n", litehw_count.load());
   #endif
   
   thread_lock.writer_unlock();

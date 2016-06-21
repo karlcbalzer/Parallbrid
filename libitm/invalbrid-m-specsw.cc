@@ -195,23 +195,23 @@ public:
     // to acquire the commit lock. And set the shared state to serial.
     if (tx->state & gtm_thread::STATE_SERIAL)
       {
-	pthread_mutex_lock(&invalbrid_mg::commit_lock);
-	tx->shared_state |= gtm_thread::STATE_SERIAL;
-    invalbrid_mg::commit_lock_available = false;
+	      pthread_mutex_lock(&invalbrid_mg::commit_lock);
+	      tx->shared_state |= gtm_thread::STATE_SERIAL;
+        invalbrid_mg::commit_lock_available = false;
       }
     uint32_t local_cs = mg->commit_sequence.load();
     while (local_cs & 1)
-      {
-	cpu_relax();
-	local_cs = mg->commit_sequence.load();
-      }
+    {
+	    cpu_relax();
+	    local_cs = mg->commit_sequence.load();
+    }
     tx->state |= gtm_thread::STATE_SOFTWARE; 
     if (unlikely(tx->tx_data.load() == NULL))
-      {
-	invalbrid_tx_data *spec_data = new invalbrid_tx_data();
-	spec_data->write_log = new gtm_log();
-	tx->tx_data.store((gtm_transaction_data*)spec_data);
-      }
+    {
+	    invalbrid_tx_data *spec_data = new invalbrid_tx_data();
+	    spec_data->write_log = new gtm_log();
+	    tx->tx_data.store((gtm_transaction_data*)spec_data);
+    }
     // Set the shared state to STATE_SOFTWARE, so invalidating transactions
     // know that this is a transaction that carrys a read and write set. We do
     // not need to take the shared_data_lock, since shared_state is set
@@ -236,28 +236,36 @@ public:
     // If this is a read only transaction, no commit lock or validation is required.
     bloomfilter *bf = spec_data->writeset.load();
     if (bf->empty() == true)
-      {
-	// Clear the tx data.
-	if (tx->state & gtm_thread::STATE_SERIAL)
-	  pthread_mutex_unlock(&invalbrid_mg::commit_lock);
-    invalbrid_mg::commit_lock_available = false;
-	clear();
-	invalbrid_mg::sw_cnt--;
-	return NO_RESTART;
-      }
+    {
+	    // The writeset is empty, so we can commit without synchronization. If we hold
+	    // the commit lock, release it.
+	    if (tx->state & gtm_thread::STATE_SERIAL)
+	    {
+        invalbrid_mg::commit_lock_available = true;
+	      pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+	    }
+	    // Clear the tx data.
+	    clear();
+	    invalbrid_mg::sw_cnt--;
+	    return NO_RESTART;
+    }
     // If this transaction went serial and has already acquired the commit lock,
     // we don't want to take it. This case should be unlikely. The default case
     // should be that the commit lock must be acquired at this point.
     if (likely(!(tx->state & gtm_thread::STATE_SERIAL)))
+    {
       pthread_mutex_lock(&invalbrid_mg::commit_lock);
+      invalbrid_mg::commit_lock_available = false;
+    }
     mg->committing_tx.store(tx);
     gtm_restart_reason rr = validate();
+    // If validation failes, restart.
     if (rr != NO_RESTART)
-      {
-    invalbrid_mg::commit_lock_available = true;
-	pthread_mutex_unlock(&invalbrid_mg::commit_lock);
-	return rr;
-      }
+    {
+      invalbrid_mg::commit_lock_available = true;
+	    pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+	    return rr;
+    }
     invalbrid_mg::sw_cnt--;
     // Commit all speculative writes to memory.
     spec_data->write_log->commit(tx);
@@ -290,20 +298,23 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     if (cp)
-      {
-	gtm_transaction_data *data = tx->tx_data.load();
-	data->load(cp->tx_data);
-      }
+    {
+	    gtm_transaction_data *data = tx->tx_data.load();
+	    data->load(cp->tx_data);
+    }
     else
-      {
-	// If this transaction has a serial state, then this rollback belongs
-	// to an outer abort of an serial mode software transaction, so we have
-	// to release the commit lock.
-	if (tx->state & gtm_thread::STATE_SERIAL)
-	  pthread_mutex_unlock(&invalbrid_mg::commit_lock);
-	invalbrid_mg::sw_cnt--;
-	clear();
-      }
+    {
+	    // If this transaction has a serial state, then this rollback belongs
+	    // to an outer abort of an serial mode software transaction, so we have
+	    // to release the commit lock.
+	    if (tx->state & gtm_thread::STATE_SERIAL)
+	    {
+        invalbrid_mg::commit_lock_available = true;
+	      pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+	    }
+	    invalbrid_mg::sw_cnt--;
+	    clear();
+    }
   }
   
 }; // specsw_dispatch

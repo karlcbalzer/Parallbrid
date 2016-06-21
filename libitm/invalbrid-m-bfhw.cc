@@ -33,7 +33,7 @@ namespace {
 class bfhw_dispatch : public abi_dispatch
 {
 public:
-  bfhw_dispatch(): bfhw_dispatch(method_group_invalbrid(), false, true) { }
+  bfhw_dispatch(): abi_dispatch(method_group_invalbrid(), false, true) { }
 
 protected:
   template <typename V> static V load(const V* addr, ls_modifier mod)
@@ -45,7 +45,7 @@ protected:
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_hw_tx_data * tx_data = (invalbrid_hw_tx_data*) tx->hw_tx_data;
-    tx_data->writeset->add_adresses((void*) addr, sizeof(V));
+    tx_data->writeset->add_address((void*) addr, sizeof(V));
     *addr = value;
   }
 
@@ -55,7 +55,7 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_hw_tx_data * tx_data = (invalbrid_hw_tx_data*) tx->hw_tx_data;
-    tx_data->writeset->add_adresses(addr, size);
+    tx_data->writeset->add_address(dst, size);
     if (!may_overlap)
       ::memcpy(dst, src, size);
     else
@@ -66,7 +66,7 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_hw_tx_data * tx_data = (invalbrid_hw_tx_data*) tx->hw_tx_data;
-    tx_data->writeset->add_adresses(addr, size);
+    tx_data->writeset->add_address(dst, size);
     ::memset(dst, c, size);
   }
 
@@ -80,7 +80,7 @@ public:
     tx->state = gtm_thread::STATE_HARDWARE;
     if (tx->hw_tx_data == 0)
     {
-      tx->hw_tx_data = (gtm_transaction_data) new invalbrid_hw_tx_data();
+      tx->hw_tx_data = (gtm_transaction_data*) new invalbrid_hw_tx_data();
     }
   }
 
@@ -129,6 +129,7 @@ public:
     bf->clear();
     tx->nesting = 0;
     tx->state = 0;
+    tx->restart_total = 0;
 
     #ifdef DEBUG_INVALBRID
       tx->tx_types_commited[BFHW]++;

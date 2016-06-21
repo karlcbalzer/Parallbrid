@@ -67,6 +67,9 @@ struct invalbrid_hw_tx_data: public gtm_transaction_data
 
     invalbrid_hw_tx_data();
     ~invalbrid_hw_tx_data();
+    
+    static void *operator new(size_t);
+    static void operator delete(void *);
 
     void clear();
     void load (gtm_transaction_data*);
