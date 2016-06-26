@@ -52,7 +52,7 @@ protected:
     // Take the thread_lock as reader to garantee that the commiting thread, if
     // one exists, won't be destroyed while we're working on it.
     tx->thread_lock.reader_lock();
-    gtm_thread *c_tx = mg->committing_tx.load();
+    gtm_thread *c_tx = mg->committing_tx.load(std::memory_order_acquire);
     bool r_conflict = false, w_conflict = false;
     if (c_tx !=0 && c_tx != tx)
     {
@@ -257,14 +257,15 @@ public:
       pthread_mutex_lock(&invalbrid_mg::commit_lock);
       invalbrid_mg::commit_lock_available = false;
     }
-    mg->committing_tx.store(tx);
+    mg->committing_tx.store(tx, std::memory_order_release);
     gtm_restart_reason rr = validate();
     // If validation failes, restart.
     if (rr != NO_RESTART)
     {
+      mg->committing_tx.store(0, std::memory_order_release);
       invalbrid_mg::commit_lock_available = true;
-        pthread_mutex_unlock(&invalbrid_mg::commit_lock);
-        return rr;
+      pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+      return rr;
     }
     invalbrid_mg::sw_cnt.fetch_sub(1,std::memory_order_release);
     // Commit all speculative writes to memory.
@@ -272,7 +273,7 @@ public:
     // Invalidate other conflicting specsw transactions.
     invalbrid_mg::invalidate();
     // Restore committing_tx_data.
-    mg->committing_tx.store(0);
+    mg->committing_tx.store(0, std::memory_order_release);
     invalbrid_mg::commit_lock_available = true;
     pthread_mutex_unlock(&invalbrid_mg::commit_lock);
     // Clear the tx data.

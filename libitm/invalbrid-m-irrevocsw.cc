@@ -87,7 +87,7 @@ public:
     // Acquire the commit lock.
     pthread_mutex_lock(&invalbrid_mg::commit_lock);
     invalbrid_mg::commit_lock_available = false;
-    mg->committing_tx.store(tx);
+    mg->committing_tx.store(tx, std::memory_order_release);
     tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE
           | gtm_thread::STATE_SOFTWARE;
     tx->shared_state.store( gtm_thread::STATE_SERIAL
@@ -111,7 +111,7 @@ public:
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
     invalbrid_tx_data * tx_data = (invalbrid_tx_data*) tx->tx_data.load();
     invalbrid_mg::invalidate();
-    mg->committing_tx.store(0);
+    mg->committing_tx.store(0, std::memory_order_release);
     invalbrid_mg::commit_lock_available = true;
     pthread_mutex_unlock(&invalbrid_mg::commit_lock);
     tx->state = 0;
