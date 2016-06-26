@@ -144,13 +144,13 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
               htm_abort();
             }
           }
-          // The hardware transaction has aborted. 
-          // If there is a tx_object present, set the restart count to the current number of restarts. 
+          // The hardware transaction has aborted.
+          // If there is a tx_object present, set the restart count to the current number of restarts.
           if (tx != NULL)
           {
             tx->restart_total = restarts;
           }
-          // We know decide if we should retry. 
+          // We know decide if we should retry.
           if (!htm_abort_should_retry(htm_ret))
             break;
         }
@@ -173,9 +173,9 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 #endif
   uint32_t ret = 0;
   if(tx->nesting > 0)
-    {
-      // This is a nested transaction.
-      if (prop & pr_hasNoAbort)
+  {
+    // This is a nested transaction.
+    if (prop & pr_hasNoAbort)
     {
       // If there is no instrumented codepath and disp can not run
       // uninstrumented, we need to restart with a dispatch that can run
@@ -183,10 +183,10 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
       // to an irrevocable transaction, that can run uninstrumented.
       if (!(prop & pr_instrumentedCode))
         if (!abi_disp()->can_run_uninstrumented_code())
-          {
-        if (!(tx->state & gtm_thread::STATE_IRREVOCABLE))
-          restart(RESTART_UNINSTRUMENTED_CODEPATH);
-        else
+        {
+          if (!(tx->state & gtm_thread::STATE_IRREVOCABLE))
+            restart(RESTART_UNINSTRUMENTED_CODEPATH);
+          else
           {
             // Set the dispatch to sglsw, because this is the only
             // irrevocable transaction type, that can run uninstrumented.
@@ -214,7 +214,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
           (abi_disp()->can_run_uninstrumented_code())) ?
         a_runUninstrumentedCode : a_runInstrumentedCode;
     }
-      else
+    else
     {
       // This is a closed nested transaction.
       assert(prop & pr_instrumentedCode);
@@ -222,17 +222,17 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
       cp->save(tx);
       new (&tx->alloc_actions) aa_tree<uintptr_t, gtm_alloc_action>();
     }
-    }
+  }
   else
-    {
-      if (prop & pr_hasNoAbort)
-      // If no abort is present, any of the Invalbrid transactions can be choosen.
+  {
+    if (prop & pr_hasNoAbort)
+    // If no abort is present, any of the Invalbrid transactions can be choosen.
     {
       if (prop & pr_doesGoIrrevocable)
       // Only irrevocsw or sglsw can be used at this point.
-        {
-          uint32_t software_count = sw_cnt.load();
-          if (((prop & pr_instrumentedCode) || (prop & pr_readOnly))
+      {
+        uint32_t software_count = sw_cnt.load();
+        if (((prop & pr_instrumentedCode) || (prop & pr_readOnly))
         && (software_count != 0))
           // Use irrevocsw if software transactions(specsws) are present and
           // there is an instrumented codepath or this transaction is read only.
@@ -240,21 +240,21 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
           else
           // Use sglsw instead.
         set_abi_disp(dispatch_invalbrid_sglsw());
-        }
+      }
       else
-        {
-          if (prop & pr_instrumentedCode)
+      {
+        if (prop & pr_instrumentedCode)
           set_abi_disp(dispatch_invalbrid_specsw());
         else
           set_abi_disp(dispatch_invalbrid_sglsw());
-        }
+      }
     }
-      else
+    else
     {
       assert(prop & pr_instrumentedCode);
       set_abi_disp(dispatch_invalbrid_specsw());
     }
-    }
+  }
 
   // Initialization that is common for outermost and closed nested transactions.
   tx->prop = prop;
@@ -265,33 +265,33 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
   if (tx->local_tid & (tid_block_size - 1))
     tx->id = tx->local_tid++;
   else
-    {
-      #ifdef HAVE_64BIT_SYNC_BUILTINS
-      // We don't really care which block of TIDs we get but only that we
-      // acquire one atomically; therefore, relaxed memory order is
-      // sufficient.
-      tx->id = global_tid.fetch_add(tid_block_size, memory_order_relaxed);
-      tx->local_tid = tx->id + 1;
-      #else
-      pthread_mutex_lock (&global_tid_lock);
-      global_tid += tid_block_size;
-      tx->id = global_tid;
-      tx->local_tid = tx->id + 1;
-      pthread_mutex_unlock (&global_tid_lock);
-      #endif
-    }
+  {
+    #ifdef HAVE_64BIT_SYNC_BUILTINS
+    // We don't really care which block of TIDs we get but only that we
+    // acquire one atomically; therefore, relaxed memory order is
+    // sufficient.
+    tx->id = global_tid.fetch_add(tid_block_size, memory_order_relaxed);
+    tx->local_tid = tx->id + 1;
+    #else
+    pthread_mutex_lock (&global_tid_lock);
+    global_tid += tid_block_size;
+    tx->id = global_tid;
+    tx->local_tid = tx->id + 1;
+    pthread_mutex_unlock (&global_tid_lock);
+    #endif
+  }
 
   // Call disp->begin if this is the outer transaction. Nested transactions
   // shouldn't call the begin routine.
   if (tx->nesting == 1)
-    {
-      abi_disp()->begin();
-    }
+  {
+    abi_disp()->begin();
+  }
 
   if (abi_disp()->can_restart()) ret |= a_saveLiveVariables;
   ret |= ((prop & pr_uninstrumentedCode) &&
-      (abi_disp()->can_run_uninstrumented_code())) ?
-    a_runUninstrumentedCode : a_runInstrumentedCode;
+          (abi_disp()->can_run_uninstrumented_code())) ?
+           a_runUninstrumentedCode : a_runInstrumentedCode;
   return ret;
 }
 
@@ -344,7 +344,7 @@ invalbrid_mg::commit_EH(void *exc_ptr)
 #ifdef USE_HTM_FASTPATH
   if (tx == NULL || tx->state == 0)
   {
-    // This is a LiteHW transaction. We can just call htm_commit, since we 
+    // This is a LiteHW transaction. We can just call htm_commit, since we
     // subscribe to the commit lock and software count at the beginning of the
     // transaction. So if something else would be running this transaction
     // would abort.
@@ -465,45 +465,45 @@ invalbrid_mg::restart(gtm_restart_reason rr)
   tx->undolog.rollback(tx);
   uint32_t ret = 0;
   if (rr == RESTART_UNINSTRUMENTED_CODEPATH || rr == RESTART_SERIAL_IRR)
-    {
-      assert(tx->prop & pr_hasNoAbort);
-      set_abi_disp(dispatch_invalbrid_sglsw());
-      ret = a_runUninstrumentedCode;
-    }
+  {
+    assert(tx->prop & pr_hasNoAbort);
+    set_abi_disp(dispatch_invalbrid_sglsw());
+    ret = a_runUninstrumentedCode;
+  }
   else
-    {
-      if (tx->restart_total < SW_RESTARTS + HW_RESTARTS)
+  {
+    if (tx->restart_total < SW_RESTARTS + HW_RESTARTS)
     {
       set_abi_disp(dispatch_invalbrid_specsw());
       ret = a_runInstrumentedCode;
     }
-      // If we have restartet to many times, switch to serial mode.
-      else
+    // If we have restartet to many times, switch to serial mode.
+    else
     {
       // If the transaction has no abort, we can use sglsw oder irrevocsw
       // transactionen.
       if (tx->prop & pr_hasNoAbort)
       {
         if (sw_cnt.load() == 0)
-          {
-        set_abi_disp(dispatch_invalbrid_sglsw());
-        ret = a_runUninstrumentedCode;
-          }
+        {
+          set_abi_disp(dispatch_invalbrid_sglsw());
+          ret = a_runUninstrumentedCode;
+        }
         else
-          {
-        set_abi_disp(dispatch_invalbrid_irrevocsw());
-        ret = a_runInstrumentedCode;
-          }
+        {
+          set_abi_disp(dispatch_invalbrid_irrevocsw());
+          ret = a_runInstrumentedCode;
+        }
       }
       // If the transaction may abort, we have to use specsw in serial mode.
       else
-        {
-          set_abi_disp(dispatch_invalbrid_specsw());
-          ret = a_runInstrumentedCode;
-          tx->state |= gtm_thread::STATE_SERIAL;
-        }
+      {
+        set_abi_disp(dispatch_invalbrid_specsw());
+        ret = a_runInstrumentedCode;
+        tx->state |= gtm_thread::STATE_SERIAL;
+      }
     }
-    }
+  }
   abi_disp()->begin();
   GTM_longjmp (ret | a_restoreLiveVariables, &(tx->jb), tx->prop);
 }
@@ -517,29 +517,29 @@ invalbrid_mg::invalidate()
   gtm_thread **prev = &(tx->list_of_threads);
   bloomfilter *bf = spec_data->writeset.load();
   for (; *prev; prev = &(*prev)->next_thread)
+  {
+    if (*prev == tx)
+      continue;
+    // Invalidate other software transactions in this case other SpecSWs.
+    // IrrevocSWs also have the state software, because they carry a
+    // writeset, but an IrrevocSW can not be active at this point, because
+    // invalidation is only done when holding the commit lock.
+    if((*prev)->shared_state.load() & gtm_thread::STATE_SOFTWARE)
     {
-      if (*prev == tx)
-    continue;
-      // Invalidate other software transactions in this case other SpecSWs.
-      // IrrevocSWs also have the state software, because they carry a
-      // writeset, but an IrrevocSW can not be active at this point, because
-      // invalidation is only done when holding the commit lock.
-      if((*prev)->shared_state.load() & gtm_thread::STATE_SOFTWARE)
-      {
-    invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load();
-    assert(prev_data != NULL);
-    bloomfilter *w_bf = prev_data->writeset.load();
-    bloomfilter *r_bf = prev_data->readset.load();
-    if (bf->intersects(w_bf))
+      invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load();
+      assert(prev_data != NULL);
+      bloomfilter *w_bf = prev_data->writeset.load();
+      bloomfilter *r_bf = prev_data->readset.load();
+      if (bf->intersects(w_bf))
       {
         prev_data->invalid_reason.store(RESTART_LOCKED_WRITE, memory_order_release);
       }
-    if (bf->intersects(r_bf))
+      if (bf->intersects(r_bf))
       {
         prev_data->invalid_reason.store(RESTART_LOCKED_READ, memory_order_release);
       }
-      }
     }
+  }
   tx->thread_lock.reader_unlock();
 }
 
@@ -590,8 +590,8 @@ invalbrid_tx_data::clear()
   if (write_log != NULL)
     write_log->rollback();
   local_commit_sequence = 0;
-  bloomfilter *ws = writeset.load();
-  bloomfilter *rs = readset.load();
+  bloomfilter *ws = writeset.load(std::memory_order_relaxed);
+  bloomfilter *rs = readset.load(std::memory_order_relaxed);
   ws->clear();
   rs->clear();
   invalid_reason.store(NO_RESTART, memory_order_release);
@@ -603,10 +603,10 @@ invalbrid_tx_data::save()
   invalbrid_tx_data *ret = new invalbrid_tx_data();
   // Get the pointers to the bloomfilters of this tx data and the checkpoint's
   // tx data.
-  bloomfilter *ws = writeset.load();
-  bloomfilter *rs = readset.load();
-  bloomfilter *ret_ws = ret->writeset.load();
-  bloomfilter *ret_rs = ret->readset.load();
+  bloomfilter *ws = writeset.load(std::memory_order_relaxed);
+  bloomfilter *rs = readset.load(std::memory_order_relaxed);
+  bloomfilter *ret_ws = ret->writeset.load(std::memory_order_relaxed);
+  bloomfilter *ret_rs = ret->readset.load(std::memory_order_relaxed);
   // Set the bloomfilters of the checkpoint to the value of this tx datas
   // bloomfilters.
   ret_ws->set(ws);
@@ -622,10 +622,10 @@ void
 invalbrid_tx_data::load(gtm_transaction_data* tx_data)
 {
   invalbrid_tx_data *data = (invalbrid_tx_data*) tx_data;
-  bloomfilter *ws = writeset.load();
-  bloomfilter *rs = readset.load();
-  bloomfilter *others_ws = data->writeset.load();
-  bloomfilter *others_rs = data->readset.load();
+  bloomfilter *ws = writeset.load(std::memory_order_relaxed);
+  bloomfilter *rs = readset.load(std::memory_order_relaxed);
+  bloomfilter *others_ws = data->writeset.load(std::memory_order_relaxed);
+  bloomfilter *others_rs = data->readset.load(std::memory_order_relaxed);
   ws->set(others_ws);
   rs->set(others_rs);
   log_size = data->log_size;
