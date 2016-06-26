@@ -24,12 +24,12 @@
 
 #include "libitm_i.h"
 #include "invalbrid-mg.h"
-#include <stdio.h> 
+#include <stdio.h>
 
 using namespace GTM;
 
 namespace {
-  
+
 class irrevocsw_dispatch : public abi_dispatch
 {
 public:
@@ -75,39 +75,37 @@ public:
     bf->add_address(dst, size);
     ::memset(dst, c, size);
   }
-  
+
   CREATE_DISPATCH_METHODS(virtual, )
   CREATE_DISPATCH_METHODS_MEM()
-  
-  void 
-  begin() 
-  { 
+
+  void
+  begin()
+  {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
-    // Acquire the commit lock. 
+    // Acquire the commit lock.
     pthread_mutex_lock(&invalbrid_mg::commit_lock);
     invalbrid_mg::commit_lock_available = false;
     mg->committing_tx.store(tx);
-    tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE 
-	      | gtm_thread::STATE_SOFTWARE; 
-    tx->shared_data_lock.writer_lock();
-    tx->shared_state.store( gtm_thread::STATE_SERIAL 
-			  | gtm_thread::STATE_IRREVOCABLE
-			  | gtm_thread::STATE_SOFTWARE);
+    tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE
+          | gtm_thread::STATE_SOFTWARE;
+    tx->shared_state.store( gtm_thread::STATE_SERIAL
+              | gtm_thread::STATE_IRREVOCABLE
+              | gtm_thread::STATE_SOFTWARE, std::memory_order_release);
     if (unlikely(tx->tx_data.load() == NULL))
-      {
-	invalbrid_tx_data *spec_data = new invalbrid_tx_data();
-	spec_data->write_log = new gtm_log();
-	tx->tx_data.store((gtm_transaction_data*)spec_data);
-      }
-    tx->shared_data_lock.writer_unlock();
+    {
+      invalbrid_tx_data *spec_data = new invalbrid_tx_data();
+      spec_data->write_log = new gtm_log();
+      tx->tx_data.store((gtm_transaction_data*)spec_data);
+    }
     #ifdef DEBUG_INVALBRID
       tx->tx_types_started[IRREVOC_SW]++;
-    #endif 
+    #endif
   }
-    
-  gtm_restart_reason 
-  trycommit() 
+
+  gtm_restart_reason
+  trycommit()
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
@@ -117,20 +115,20 @@ public:
     invalbrid_mg::commit_lock_available = true;
     pthread_mutex_unlock(&invalbrid_mg::commit_lock);
     tx->state = 0;
-    tx->shared_state.store(0);
+    tx->shared_state.store(0, std::memory_order_release);
     tx_data->clear();
     #ifdef DEBUG_INVALBRID
       tx->tx_types_commited[IRREVOC_SW]++;
-    #endif 
-    return NO_RESTART; 
+    #endif
+    return NO_RESTART;
   }
-  
-  void 
+
+  void
   rollback(gtm_transaction_cp *cp)
   {
     GTM_fatal("Invalbrid-IrrevocSW cannot rollback, because it's serial irrevocable");
   }
-  
+
 }; // sglsw_dispatch
 
 static const irrevocsw_dispatch o_irrevocsw_dispatch;

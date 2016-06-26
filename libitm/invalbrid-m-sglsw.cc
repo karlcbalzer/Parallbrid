@@ -23,12 +23,12 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include "libitm_i.h"
-#include "invalbrid-mg.h" 
+#include "invalbrid-mg.h"
 
 using namespace GTM;
 
 namespace {
-  
+
 class sglsw_dispatch : public abi_dispatch
 {
 public:
@@ -59,13 +59,13 @@ public:
   {
     ::memset(dst, c, size);
   }
-  
+
   CREATE_DISPATCH_METHODS(virtual, )
   CREATE_DISPATCH_METHODS_MEM()
-  
-  void 
-  begin() 
-  { 
+
+  void
+  begin()
+  {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
     // Acquire the commit lock.
@@ -74,18 +74,16 @@ public:
     // Increment the commit sequenze to an odd value, to stop software
     // transactions that are active and new ones from starting.
     mg->commit_sequence++;
-    tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE; 
-    tx->shared_data_lock.writer_lock();
-    tx->shared_state.store(gtm_thread::STATE_SERIAL 
-			  |gtm_thread::STATE_IRREVOCABLE);
-    tx->shared_data_lock.writer_unlock();
+    tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE;
+    tx->shared_state.store(gtm_thread::STATE_SERIAL
+              |gtm_thread::STATE_IRREVOCABLE, std::memory_order_release);
     #ifdef DEBUG_INVALBRID
       tx->tx_types_started[SGL_SW]++;
-    #endif 
+    #endif
   }
-    
-  gtm_restart_reason 
-  trycommit() 
+
+  gtm_restart_reason
+  trycommit()
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
@@ -93,21 +91,19 @@ public:
     invalbrid_mg::commit_lock_available = true;
     pthread_mutex_unlock(&invalbrid_mg::commit_lock);
     tx->state = 0;
-    tx->shared_data_lock.writer_lock();
-    tx->shared_state.store(0);
-    tx->shared_data_lock.writer_unlock();
+    tx->shared_state.store(0, std::memory_order_release);
     #ifdef DEBUG_INVALBRID
       tx->tx_types_commited[SGL_SW]++;
-    #endif 
-    return NO_RESTART; 
+    #endif
+    return NO_RESTART;
   }
-  
-  void 
+
+  void
   rollback(gtm_transaction_cp *cp)
   {
     GTM_fatal("Invalbrid-SglSW cannot rollback, because it's serial irrevocable");
   }
-  
+
 }; // sglsw_dispatch
 
 static const sglsw_dispatch o_sglsw_dispatch;

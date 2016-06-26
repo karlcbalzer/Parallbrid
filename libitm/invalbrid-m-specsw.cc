@@ -194,11 +194,11 @@ public:
     // If this transaction has been restartet as a serial transaction, we have
     // to acquire the commit lock. And set the shared state to serial.
     if (tx->state & gtm_thread::STATE_SERIAL)
-      {
-          pthread_mutex_lock(&invalbrid_mg::commit_lock);
-          tx->shared_state |= gtm_thread::STATE_SERIAL;
-        invalbrid_mg::commit_lock_available = false;
-      }
+    {
+        pthread_mutex_lock(&invalbrid_mg::commit_lock);
+        tx->shared_state.fetch_or(gtm_thread::STATE_SERIAL,std::memory_order_release);
+      invalbrid_mg::commit_lock_available = false;
+    }
     uint32_t local_cs = mg->commit_sequence.load();
     while (local_cs & 1)
     {
@@ -217,7 +217,7 @@ public:
     // not need to take the shared_data_lock, since shared_state is set
     // atomically and the memory order garantees that tx_data is published
     // before shared_state is.
-    tx->shared_state |= gtm_thread::STATE_SOFTWARE;
+    tx->shared_state.fetch_or(gtm_thread::STATE_SOFTWARE, std::memory_order_release);
     invalbrid_tx_data* tx_data = (invalbrid_tx_data*) tx->tx_data.load();
     // Save the commit_sequence so we can restart if a sglsw transaction was
     // starteted.
@@ -288,7 +288,7 @@ public:
   clear()
   {
     gtm_thread *tx = gtm_thr();
-    tx->shared_state.store(0);
+    tx->shared_state.store(0, std::memory_order_release);
     tx->tx_data.load()->clear();
     tx->state = 0;
   }

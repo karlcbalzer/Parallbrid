@@ -524,7 +524,7 @@ invalbrid_mg::invalidate()
     // IrrevocSWs also have the state software, because they carry a
     // writeset, but an IrrevocSW can not be active at this point, because
     // invalidation is only done when holding the commit lock.
-    if((*prev)->shared_state.load() & gtm_thread::STATE_SOFTWARE)
+    if((*prev)->shared_state.load(std::memory_order_acquire) & gtm_thread::STATE_SOFTWARE)
     {
       invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load();
       assert(prev_data != NULL);
@@ -550,7 +550,7 @@ invalbrid_tx_data::invalbrid_tx_data()
 {
   log_size = 0;
   local_commit_sequence = 0;
-  invalid_reason.store(NO_RESTART);
+  invalid_reason.store(NO_RESTART, std::memory_order_release);
   readset.store(new bloomfilter());
   writeset.store(new bloomfilter());
 }
