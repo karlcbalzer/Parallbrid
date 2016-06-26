@@ -145,11 +145,6 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
             }
           }
           // The hardware transaction has aborted.
-          // If there is a tx_object present, set the restart count to the current number of restarts.
-          if (tx != NULL)
-          {
-            tx->restart_total = restarts;
-          }
           // We know decide if we should retry.
           if (!htm_abort_should_retry(htm_ret))
             break;
@@ -160,8 +155,6 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
         tx = new gtm_thread();
         set_gtm_thr(tx);
       }
-      // Set the restart count to the current number of restarts.
-      tx->restart_total = restarts;
     }
   }
 #else
@@ -472,7 +465,7 @@ invalbrid_mg::restart(gtm_restart_reason rr)
   }
   else
   {
-    if (tx->restart_total < SW_RESTARTS + HW_RESTARTS)
+    if (tx->restart_total < SW_RESTARTS)
     {
       set_abi_disp(dispatch_invalbrid_specsw());
       ret = a_runInstrumentedCode;

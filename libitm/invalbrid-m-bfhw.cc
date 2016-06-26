@@ -129,7 +129,6 @@ public:
     bf->clear();
     tx->nesting = 0;
     tx->state = 0;
-    tx->restart_total = 0;
 
     #ifdef DEBUG_INVALBRID
       tx->tx_types_commited[BFHW]++;
