@@ -23,21 +23,21 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include "libitm_i.h"
-#include "invalbrid-mg.h" 
+#include "invalbrid-mg.h"
 #include <stdio.h>
 
 using namespace GTM;
 
 namespace {
-  
+
 class specsw_dispatch : public abi_dispatch
 {
 public:
   specsw_dispatch(): abi_dispatch(method_group_invalbrid(), false, true) { }
 
 protected:
-  static gtm_restart_reason 
-  validate() 
+  static gtm_restart_reason
+  validate()
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg *mg = (invalbrid_mg*)method_group::method_gr;
@@ -55,23 +55,23 @@ protected:
     gtm_thread *c_tx = mg->committing_tx.load();
     bool r_conflict = false, w_conflict = false;
     if (c_tx !=0 && c_tx != tx)
-      {
-	// We do not have to check the state of the committing tx, since only
-	// transactions with a read- and writeset set committing_tx. If the
-	// transaction pointed to by committing_tx has moved on and has no
-	// longer the software state, then there is no problem either, since it
-	// still carrys an read and writeset, even if its not used.
-	invalbrid_tx_data* c_tx_data = (invalbrid_tx_data*)c_tx->tx_data.load();
-	// Load the writeset of the committing transaction.
-	bloomfilter *c_bf = c_tx_data->writeset.load();
-	// Load this threads read- and writeset.
-	bloomfilter *r_bf = spec_data->readset.load();
-	bloomfilter *w_bf = spec_data->writeset.load();
-	// Intersect this transactions read- and writeset with the writeset of the
-	// committing transaction.
-	r_conflict = r_bf->intersects(c_bf);
-	w_conflict = w_bf->intersects(c_bf);
-      }
+    {
+      // We do not have to check the state of the committing tx, since only
+      // transactions with a read- and writeset set committing_tx. If the
+      // transaction pointed to by committing_tx has moved on and has no
+      // longer the software state, then there is no problem either, since it
+      // still carrys an read and writeset, even if its not used.
+      invalbrid_tx_data* c_tx_data = (invalbrid_tx_data*)c_tx->tx_data.load();
+      // Load the writeset of the committing transaction.
+      bloomfilter *c_bf = c_tx_data->writeset.load();
+      // Load this threads read- and writeset.
+      bloomfilter *r_bf = spec_data->readset.load();
+      bloomfilter *w_bf = spec_data->writeset.load();
+      // Intersect this transactions read- and writeset with the writeset of the
+      // committing transaction.
+      r_conflict = r_bf->intersects(c_bf);
+      w_conflict = w_bf->intersects(c_bf);
+    }
     tx->thread_lock.reader_unlock();
     // If this transactions read- or writeset intersect with the writeset of
     // the committing transaction, then this transaction has to be restarted.
@@ -83,19 +83,19 @@ protected:
     invalbrid_mg::hw_post_commit_lock.reader_lock();
     uint32_t hw_pc = invalbrid_mg::hw_post_commit;
     invalbrid_mg::hw_post_commit_lock.reader_unlock();
-    while (hw_pc != 0) 
-    { 
+    while (hw_pc != 0)
+    {
       cpu_relax();
       invalbrid_mg::hw_post_commit_lock.reader_lock();
       hw_pc = invalbrid_mg::hw_post_commit;
-      invalbrid_mg::hw_post_commit_lock.reader_unlock(); 
+      invalbrid_mg::hw_post_commit_lock.reader_unlock();
     }
     // If this transaction has been invalidated, it has to be restartet. This is
     // handled by the caller.
     gtm_restart_reason rr = spec_data->invalid_reason.load(memory_order_acquire);
-    return rr;    
+    return rr;
   }
-  
+
   static void
   pre_write(void *dst, size_t size)
   {
@@ -105,13 +105,13 @@ protected:
     gtm_restart_reason rr = spec_data->invalid_reason.load(memory_order_acquire);
     if (rr != NO_RESTART)
       {
-	method_group::method_gr->restart(rr);
+    method_group::method_gr->restart(rr);
       }
     // Adding the address to the writeset bloomfilter.
     bloomfilter *bf = spec_data->writeset.load();
     bf->add_address(dst, size);
   }
-  
+
   template <typename V> static V load(const V* addr, ls_modifier mod)
   {
     gtm_thread *tx = gtm_thr();
@@ -125,13 +125,13 @@ protected:
     // But only if this transaction hasn't been upgraded to serial status.
     if (!(tx->state & gtm_thread::STATE_SERIAL))
       {
-	gtm_restart_reason rr = validate();
-	if (rr != NO_RESTART)
-	  method_group::method_gr->restart(rr);
+    gtm_restart_reason rr = validate();
+    if (rr != NO_RESTART)
+      method_group::method_gr->restart(rr);
       }
     return val;
   }
-  
+
   template <typename V> static void store(V* addr, const V value,
       ls_modifier mod)
   {
@@ -154,15 +154,15 @@ public:
     bloomfilter *bf = spec_data->readset.load();
     bf->add_address(src, size);
     void *tmp = xmalloc (size, true);
-    ::memcpy(tmp, src, size); 
-    spec_data->write_log->load_value(tmp,src, size); 
+    ::memcpy(tmp, src, size);
+    spec_data->write_log->load_value(tmp,src, size);
     // Before the value can be added to the write log, we have to do validation
     // for opacity. But only if this is not an serial transaction.
     if (!(tx->state & gtm_thread::STATE_SERIAL))
       {
-	gtm_restart_reason rr = validate();
-	if (rr != NO_RESTART)
-	  method_group::method_gr->restart(rr);
+    gtm_restart_reason rr = validate();
+    if (rr != NO_RESTART)
+      method_group::method_gr->restart(rr);
       }
     // write phase
     bf = spec_data->writeset.load();
@@ -181,36 +181,36 @@ public:
     spec_data->write_log->log_memset(dst,c, size);
     spec_data->log_size = spec_data->write_log->size();
   }
-  
+
   CREATE_DISPATCH_METHODS(virtual, )
   CREATE_DISPATCH_METHODS_MEM()
-  
-  void 
-  begin() 
-  { 
-    invalbrid_mg::sw_cnt++; 
+
+  void
+  begin()
+  {
+    invalbrid_mg::sw_cnt.fetch_add(1, std::memory_order_release);
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
     // If this transaction has been restartet as a serial transaction, we have
     // to acquire the commit lock. And set the shared state to serial.
     if (tx->state & gtm_thread::STATE_SERIAL)
       {
-	      pthread_mutex_lock(&invalbrid_mg::commit_lock);
-	      tx->shared_state |= gtm_thread::STATE_SERIAL;
+          pthread_mutex_lock(&invalbrid_mg::commit_lock);
+          tx->shared_state |= gtm_thread::STATE_SERIAL;
         invalbrid_mg::commit_lock_available = false;
       }
     uint32_t local_cs = mg->commit_sequence.load();
     while (local_cs & 1)
     {
-	    cpu_relax();
-	    local_cs = mg->commit_sequence.load();
+        cpu_relax();
+        local_cs = mg->commit_sequence.load();
     }
-    tx->state |= gtm_thread::STATE_SOFTWARE; 
+    tx->state |= gtm_thread::STATE_SOFTWARE;
     if (unlikely(tx->tx_data.load() == NULL))
     {
-	    invalbrid_tx_data *spec_data = new invalbrid_tx_data();
-	    spec_data->write_log = new gtm_log();
-	    tx->tx_data.store((gtm_transaction_data*)spec_data);
+        invalbrid_tx_data *spec_data = new invalbrid_tx_data();
+        spec_data->write_log = new gtm_log();
+        tx->tx_data.store((gtm_transaction_data*)spec_data);
     }
     // Set the shared state to STATE_SOFTWARE, so invalidating transactions
     // know that this is a transaction that carrys a read and write set. We do
@@ -226,9 +226,9 @@ public:
       tx->tx_types_started[SPEC_SW]++;
     #endif
   }
-  
-  gtm_restart_reason 
-  trycommit() 
+
+  gtm_restart_reason
+  trycommit()
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
@@ -237,17 +237,17 @@ public:
     bloomfilter *bf = spec_data->writeset.load();
     if (bf->empty() == true)
     {
-	    // The writeset is empty, so we can commit without synchronization. If we hold
-	    // the commit lock, release it.
-	    if (tx->state & gtm_thread::STATE_SERIAL)
-	    {
+        // The writeset is empty, so we can commit without synchronization. If we hold
+        // the commit lock, release it.
+        if (tx->state & gtm_thread::STATE_SERIAL)
+        {
         invalbrid_mg::commit_lock_available = true;
-	      pthread_mutex_unlock(&invalbrid_mg::commit_lock);
-	    }
-	    // Clear the tx data.
-	    clear();
-	    invalbrid_mg::sw_cnt--;
-	    return NO_RESTART;
+          pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+        }
+        // Clear the tx data.
+        clear();
+        invalbrid_mg::sw_cnt.fetch_sub(1,std::memory_order_release);
+        return NO_RESTART;
     }
     // If this transaction went serial and has already acquired the commit lock,
     // we don't want to take it. This case should be unlikely. The default case
@@ -263,10 +263,10 @@ public:
     if (rr != NO_RESTART)
     {
       invalbrid_mg::commit_lock_available = true;
-	    pthread_mutex_unlock(&invalbrid_mg::commit_lock);
-	    return rr;
+        pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+        return rr;
     }
-    invalbrid_mg::sw_cnt--;
+    invalbrid_mg::sw_cnt.fetch_sub(1,std::memory_order_release);
     // Commit all speculative writes to memory.
     spec_data->write_log->commit(tx);
     // Invalidate other conflicting specsw transactions.
@@ -282,7 +282,7 @@ public:
     #endif
     return NO_RESTART;
   }
-  
+
   // Clear the tx data.
   void
   clear()
@@ -292,31 +292,31 @@ public:
     tx->tx_data.load()->clear();
     tx->state = 0;
   }
-  
+
   void
   rollback(gtm_transaction_cp *cp)
   {
     gtm_thread *tx = gtm_thr();
     if (cp)
     {
-	    gtm_transaction_data *data = tx->tx_data.load();
-	    data->load(cp->tx_data);
+        gtm_transaction_data *data = tx->tx_data.load();
+        data->load(cp->tx_data);
     }
     else
     {
-	    // If this transaction has a serial state, then this rollback belongs
-	    // to an outer abort of an serial mode software transaction, so we have
-	    // to release the commit lock.
-	    if (tx->state & gtm_thread::STATE_SERIAL)
-	    {
+        // If this transaction has a serial state, then this rollback belongs
+        // to an outer abort of an serial mode software transaction, so we have
+        // to release the commit lock.
+        if (tx->state & gtm_thread::STATE_SERIAL)
+        {
         invalbrid_mg::commit_lock_available = true;
-	      pthread_mutex_unlock(&invalbrid_mg::commit_lock);
-	    }
-	    invalbrid_mg::sw_cnt--;
-	    clear();
+          pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+        }
+        invalbrid_mg::sw_cnt.fetch_sub(1, std::memory_order_release);
+        clear();
     }
   }
-  
+
 }; // specsw_dispatch
 
 static const specsw_dispatch o_specsw_dispatch;

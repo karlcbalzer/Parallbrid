@@ -105,7 +105,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
         for ( ;restarts < HW_RESTARTS; ++restarts)
         {
           // Get the number of running software transactions.
-          uint32_t tmp_sw_cnt = invalbrid_mg::sw_cnt.load();
+          uint32_t tmp_sw_cnt = invalbrid_mg::sw_cnt.load(memory_order_acquire);
           // If there is no thread object, but we need to use BFHW transactions, create one.
           if (tx == NULL && tmp_sw_cnt != 0)
           {
@@ -231,7 +231,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
       if (prop & pr_doesGoIrrevocable)
       // Only irrevocsw or sglsw can be used at this point.
       {
-        uint32_t software_count = sw_cnt.load();
+        uint32_t software_count = sw_cnt.load(memory_order_acquire);
         if (((prop & pr_instrumentedCode) || (prop & pr_readOnly))
         && (software_count != 0))
           // Use irrevocsw if software transactions(specsws) are present and
@@ -484,7 +484,7 @@ invalbrid_mg::restart(gtm_restart_reason rr)
       // transactionen.
       if (tx->prop & pr_hasNoAbort)
       {
-        if (sw_cnt.load() == 0)
+        if (sw_cnt.load(memory_order_acquire) == 0)
         {
           set_abi_disp(dispatch_invalbrid_sglsw());
           ret = a_runUninstrumentedCode;
