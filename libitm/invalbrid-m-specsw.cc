@@ -45,7 +45,7 @@ protected:
     // If commit_sequenze has changed since this transaction started, then a
     // sglsw transaction is or was running. So this transaction has to restart,
     // because there is no conflict detection with sglsw transactions.
-    if (spec_data->local_commit_sequence != mg->commit_sequence.load())
+    if (spec_data->local_commit_sequence != mg->commit_sequence.load(std::memory_order_acquire))
       return RESTART_TRY_AGAIN;
     // If there is a transaction which holds the commit_lock, we have to
     // validate the read and write set against its write set.
@@ -159,11 +159,11 @@ public:
     // Before the value can be added to the write log, we have to do validation
     // for opacity. But only if this is not an serial transaction.
     if (!(tx->state & gtm_thread::STATE_SERIAL))
-      {
-    gtm_restart_reason rr = validate();
-    if (rr != NO_RESTART)
-      method_group::method_gr->restart(rr);
-      }
+    {
+      gtm_restart_reason rr = validate();
+      if (rr != NO_RESTART)
+        method_group::method_gr->restart(rr);
+    }
     // write phase
     bf = spec_data->writeset.load();
     bf->add_address(dst, size);
@@ -199,11 +199,11 @@ public:
         tx->shared_state.fetch_or(gtm_thread::STATE_SERIAL,std::memory_order_release);
       invalbrid_mg::commit_lock_available = false;
     }
-    uint32_t local_cs = mg->commit_sequence.load();
+    uint32_t local_cs = mg->commit_sequence.load(std::memory_order_acquire);
     while (local_cs & 1)
     {
         cpu_relax();
-        local_cs = mg->commit_sequence.load();
+        local_cs = mg->commit_sequence.load(std::memory_order_acquire);
     }
     tx->state |= gtm_thread::STATE_SOFTWARE;
     if (unlikely(tx->tx_data.load() == NULL))

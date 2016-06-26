@@ -73,7 +73,7 @@ public:
     invalbrid_mg::commit_lock_available = false;
     // Increment the commit sequenze to an odd value, to stop software
     // transactions that are active and new ones from starting.
-    mg->commit_sequence++;
+    mg->commit_sequence.fetch_add(1,std::memory_order_release);
     tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE;
     tx->shared_state.store(gtm_thread::STATE_SERIAL
               |gtm_thread::STATE_IRREVOCABLE, std::memory_order_release);
@@ -87,7 +87,7 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
-    mg->commit_sequence++;
+    mg->commit_sequence.fetch_add(std::memory_order_release);
     invalbrid_mg::commit_lock_available = true;
     pthread_mutex_unlock(&invalbrid_mg::commit_lock);
     tx->state = 0;
