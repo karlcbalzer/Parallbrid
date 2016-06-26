@@ -41,7 +41,8 @@ protected:
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg *mg = (invalbrid_mg*)method_group::method_gr;
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    // We can load tx_data in relaxed mode, because the reference never changes.
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // If commit_sequenze has changed since this transaction started, then a
     // sglsw transaction is or was running. So this transaction has to restart,
     // because there is no conflict detection with sglsw transactions.
@@ -61,7 +62,7 @@ protected:
       // transaction pointed to by committing_tx has moved on and has no
       // longer the software state, then there is no problem either, since it
       // still carrys an read and writeset, even if its not used.
-      invalbrid_tx_data* c_tx_data = (invalbrid_tx_data*)c_tx->tx_data.load();
+      invalbrid_tx_data* c_tx_data = (invalbrid_tx_data*)c_tx->tx_data.load(std::memory_order_acquire);
       // Load the writeset of the committing transaction.
       bloomfilter *c_bf = c_tx_data->writeset.load();
       // Load this threads read- and writeset.
@@ -100,7 +101,7 @@ protected:
   pre_write(void *dst, size_t size)
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // If this transaction has been invalidated, it has to be restarted.
     gtm_restart_reason rr = spec_data->invalid_reason.load(memory_order_acquire);
     if (rr != NO_RESTART)
@@ -115,7 +116,7 @@ protected:
   template <typename V> static V load(const V* addr, ls_modifier mod)
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addr will be added to the readset.
     bloomfilter *bf = spec_data->readset.load();
     bf->add_address((void*) addr, sizeof(V));
@@ -137,7 +138,7 @@ protected:
   {
     pre_write(addr, sizeof(V));
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // Adding the addr, value pair to the writelog.
     spec_data->write_log->log((void*)addr,(void*)&value, sizeof(V));
     spec_data->log_size = spec_data->write_log->size();
@@ -149,7 +150,7 @@ public:
   {
     // read phase
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The src addresses will be added to the readset.
     bloomfilter *bf = spec_data->readset.load();
     bf->add_address(src, size);
@@ -176,7 +177,7 @@ public:
   {
     pre_write(dst, size);
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // Adding the addr, value pair to the writelog.
     spec_data->write_log->log_memset(dst,c, size);
     spec_data->log_size = spec_data->write_log->size();
@@ -206,11 +207,11 @@ public:
         local_cs = mg->commit_sequence.load(std::memory_order_acquire);
     }
     tx->state |= gtm_thread::STATE_SOFTWARE;
-    if (unlikely(tx->tx_data.load() == NULL))
+    if (unlikely(tx->tx_data.load(std::memory_order_relaxed) == NULL))
     {
         invalbrid_tx_data *spec_data = new invalbrid_tx_data();
         spec_data->write_log = new gtm_log();
-        tx->tx_data.store((gtm_transaction_data*)spec_data);
+        tx->tx_data.store((gtm_transaction_data*)spec_data, std::memory_order_release);
     }
     // Set the shared state to STATE_SOFTWARE, so invalidating transactions
     // know that this is a transaction that carrys a read and write set. We do
@@ -232,7 +233,7 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
-    invalbrid_tx_data * spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    invalbrid_tx_data * spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // If this is a read only transaction, no commit lock or validation is required.
     bloomfilter *bf = spec_data->writeset.load();
     if (bf->empty() == true)
@@ -290,7 +291,7 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     tx->shared_state.store(0, std::memory_order_release);
-    tx->tx_data.load()->clear();
+    tx->tx_data.load(std::memory_order_relaxed)->clear();
     tx->state = 0;
   }
 
@@ -300,7 +301,7 @@ public:
     gtm_thread *tx = gtm_thr();
     if (cp)
     {
-        gtm_transaction_data *data = tx->tx_data.load();
+        gtm_transaction_data *data = tx->tx_data.load(std::memory_order_relaxed);
         data->load(cp->tx_data);
     }
     else

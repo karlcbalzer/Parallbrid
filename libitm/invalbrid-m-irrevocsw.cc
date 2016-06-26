@@ -44,7 +44,8 @@ protected:
       ls_modifier mod)
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    // We can load tx_data in relaxed mode, because the reference never changes.
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
     bloomfilter *bf = spec_data->writeset.load();
     bf->add_address((void*) addr, sizeof(V));
@@ -56,7 +57,8 @@ public:
       bool may_overlap, ls_modifier dst_mod, ls_modifier src_mod)
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    // We can load tx_data in relaxed mode, because the reference never changes.
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
     bloomfilter *bf = spec_data->writeset.load();
     bf->add_address(dst, size);
@@ -69,7 +71,8 @@ public:
   static void memset_static(void *dst, int c, size_t size, ls_modifier mod)
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+    // We can load tx_data in relaxed mode, because the reference never changes.
+    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
     bloomfilter *bf = spec_data->writeset.load();
     bf->add_address(dst, size);
@@ -93,11 +96,11 @@ public:
     tx->shared_state.store( gtm_thread::STATE_SERIAL
               | gtm_thread::STATE_IRREVOCABLE
               | gtm_thread::STATE_SOFTWARE, std::memory_order_release);
-    if (unlikely(tx->tx_data.load() == NULL))
+    if (unlikely(tx->tx_data.load(std::memory_order_relaxed) == NULL))
     {
       invalbrid_tx_data *spec_data = new invalbrid_tx_data();
       spec_data->write_log = new gtm_log();
-      tx->tx_data.store((gtm_transaction_data*)spec_data);
+      tx->tx_data.store((gtm_transaction_data*)spec_data, std::memory_order_release);
     }
     #ifdef DEBUG_INVALBRID
       tx->tx_types_started[IRREVOC_SW]++;
@@ -109,7 +112,7 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
-    invalbrid_tx_data * tx_data = (invalbrid_tx_data*) tx->tx_data.load();
+    invalbrid_tx_data * tx_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     invalbrid_mg::invalidate();
     mg->committing_tx.store(0, std::memory_order_release);
     invalbrid_mg::commit_lock_available = true;

@@ -512,7 +512,7 @@ void
 invalbrid_mg::invalidate()
 {
   gtm_thread *tx = gtm_thr();
-  invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load();
+  invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
   tx->thread_lock.reader_lock();
   gtm_thread **prev = &(tx->list_of_threads);
   bloomfilter *bf = spec_data->writeset.load();
@@ -526,7 +526,7 @@ invalbrid_mg::invalidate()
     // invalidation is only done when holding the commit lock.
     if((*prev)->shared_state.load(std::memory_order_acquire) & gtm_thread::STATE_SOFTWARE)
     {
-      invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load();
+      invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load(std::memory_order_acquire);
       assert(prev_data != NULL);
       bloomfilter *w_bf = prev_data->writeset.load();
       bloomfilter *r_bf = prev_data->readset.load();
