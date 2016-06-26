@@ -109,8 +109,8 @@ public:
       {
         invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load(std::memory_order_acquire);
         assert(prev_data != NULL);
-        bloomfilter *w_bf = prev_data->writeset.load();
-        bloomfilter *r_bf = prev_data->readset.load();
+        bloomfilter *w_bf = prev_data->writeset.load(std::memory_order_acquire);
+        bloomfilter *r_bf = prev_data->readset.load(std::memory_order_acquire);
         if (bf->intersects(w_bf))
         {
           prev_data->invalid_reason.store(RESTART_LOCKED_WRITE, memory_order_release);

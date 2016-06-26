@@ -47,7 +47,7 @@ protected:
     // We can load tx_data in relaxed mode, because the reference never changes.
     invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
-    bloomfilter *bf = spec_data->writeset.load();
+    bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address((void*) addr, sizeof(V));
     *addr = value;
   }
@@ -60,7 +60,7 @@ public:
     // We can load tx_data in relaxed mode, because the reference never changes.
     invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
-    bloomfilter *bf = spec_data->writeset.load();
+    bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
     if (!may_overlap)
       ::memcpy(dst, src, size);
@@ -74,7 +74,7 @@ public:
     // We can load tx_data in relaxed mode, because the reference never changes.
     invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
-    bloomfilter *bf = spec_data->writeset.load();
+    bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
     ::memset(dst, c, size);
   }

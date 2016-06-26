@@ -103,7 +103,7 @@ bloomfilter::add_address(const void *ptr, size_t len)
   }
   for (int i=0; i<BLOOMFILTER_BLOCKS; i++)
     if (tmp_bf[i] != 0)
-      bf[i] |= tmp_bf[i];
+      bf[i].fetch_or(tmp_bf[i]), std::memory_order_release;
 }
 
 void
@@ -111,7 +111,7 @@ bloomfilter::set(const bloomfilter* bfilter)
 {
   const atomic<uint64_t> *data = bfilter->bf;
   for (int i=0; i<BLOOMFILTER_BLOCKS; i++)
-    bf[i].store(data[i].load());
+    bf[i].store(data[i].load(std::memory_order_relaxed), std::memory_order_release);
 }
 
 bool
@@ -123,7 +123,7 @@ bloomfilter::intersects(const bloomfilter* bfilter)
     // If there is a bit that is set in both filters, then there is an
     // intersection of the bloomfilters. This means, that there is the
     // possibilty of an element beeing part of both filters.
-    if (bf[i].load() & data[i].load())
+    if (bf[i].load(std::memory_order_relaxed) & data[i].load(std::memory_order_acquire))
       return true;
   }
   return false;
@@ -134,14 +134,14 @@ bloomfilter::empty ()
 {
   bool ret = true;
   for (int i=0; i<BLOOMFILTER_BLOCKS; i++)
-    if (bf[i].load() != 0) ret = false;
+    if (bf[i].load(std::memory_order_relaxed) != 0) ret = false;
   return ret;
 }
 
 void
 bloomfilter::clear()
 {
-  for (int i=0; i<BLOOMFILTER_BLOCKS; i++) bf[i].store(0);
+  for (int i=0; i<BLOOMFILTER_BLOCKS; i++) bf[i].store(0, std::memory_order_release);
 }
 
 // Allocate a bloomfilter structure.
@@ -189,7 +189,7 @@ hw_bloomfilter::intersects(const bloomfilter *bfilter)
     // If there is a bit that is set in both filters, then there is an
     // intersection of the bloomfilters. This means, that there is the
     // possibilty of an element beeing part of both filters.
-    if (bf[i] & data[i].load())
+    if (bf[i] & data[i].load(std::memory_order_acquire))
       return true;
   }
   return false;

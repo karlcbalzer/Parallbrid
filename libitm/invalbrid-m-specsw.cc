@@ -64,10 +64,10 @@ protected:
       // still carrys an read and writeset, even if its not used.
       invalbrid_tx_data* c_tx_data = (invalbrid_tx_data*)c_tx->tx_data.load(std::memory_order_acquire);
       // Load the writeset of the committing transaction.
-      bloomfilter *c_bf = c_tx_data->writeset.load();
+      bloomfilter *c_bf = c_tx_data->writeset.load(std::memory_order_acquire);
       // Load this threads read- and writeset.
-      bloomfilter *r_bf = spec_data->readset.load();
-      bloomfilter *w_bf = spec_data->writeset.load();
+      bloomfilter *r_bf = spec_data->readset.load(std::memory_order_relaxed);
+      bloomfilter *w_bf = spec_data->writeset.load(std::memory_order_relaxed);
       // Intersect this transactions read- and writeset with the writeset of the
       // committing transaction.
       r_conflict = r_bf->intersects(c_bf);
@@ -109,7 +109,7 @@ protected:
     method_group::method_gr->restart(rr);
       }
     // Adding the address to the writeset bloomfilter.
-    bloomfilter *bf = spec_data->writeset.load();
+    bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
   }
 
@@ -118,7 +118,7 @@ protected:
     gtm_thread *tx = gtm_thr();
     invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addr will be added to the readset.
-    bloomfilter *bf = spec_data->readset.load();
+    bloomfilter *bf = spec_data->readset.load(std::memory_order_relaxed);
     bf->add_address((void*) addr, sizeof(V));
     V val = *addr;
     spec_data->write_log->load_value((void*)&val,(void*)addr, sizeof(V));
@@ -152,7 +152,7 @@ public:
     gtm_thread *tx = gtm_thr();
     invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The src addresses will be added to the readset.
-    bloomfilter *bf = spec_data->readset.load();
+    bloomfilter *bf = spec_data->readset.load(std::memory_order_relaxed);
     bf->add_address(src, size);
     void *tmp = xmalloc (size, true);
     ::memcpy(tmp, src, size);
@@ -166,7 +166,7 @@ public:
         method_group::method_gr->restart(rr);
     }
     // write phase
-    bf = spec_data->writeset.load();
+    bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
     // Adding the addr, value pair to the writelog.
     spec_data->write_log->log(dst,tmp, size);
@@ -235,14 +235,14 @@ public:
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
     invalbrid_tx_data * spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // If this is a read only transaction, no commit lock or validation is required.
-    bloomfilter *bf = spec_data->writeset.load();
+    bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     if (bf->empty() == true)
     {
         // The writeset is empty, so we can commit without synchronization. If we hold
         // the commit lock, release it.
         if (tx->state & gtm_thread::STATE_SERIAL)
         {
-        invalbrid_mg::commit_lock_available = true;
+          invalbrid_mg::commit_lock_available = true;
           pthread_mutex_unlock(&invalbrid_mg::commit_lock);
         }
         // Clear the tx data.
