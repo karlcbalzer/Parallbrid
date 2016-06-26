@@ -103,7 +103,7 @@ bloomfilter::add_address(const void *ptr, size_t len)
   }
   for (int i=0; i<BLOOMFILTER_BLOCKS; i++)
     if (tmp_bf[i] != 0)
-      bf[i].fetch_or(tmp_bf[i]), std::memory_order_release;
+      bf[i].fetch_or(tmp_bf[i], std::memory_order_release);
 }
 
 void
