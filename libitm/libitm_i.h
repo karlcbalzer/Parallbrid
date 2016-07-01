@@ -339,8 +339,6 @@ struct gtm_thread
   // Points to the next thread in the list of all threads.
   gtm_thread* next_thread __attribute__((__aligned__(HW_CACHELINE_SIZE)));
 
-  // The shared_data_lock can be used to protect the shared data.
-  rw_atomic_lock shared_data_lock;
   // If this transaction is inactive, shared_state is ~0. Otherwise, this is
   // an active or serial transaction.
   atomic<gtm_word> shared_state;

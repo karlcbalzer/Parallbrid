@@ -156,11 +156,9 @@ GTM::gtm_thread::~gtm_thread()
   // thread that trys to access tx_data should acquire the thread_lock as a
   // reader. But since thread destruction is hopefully uncommon, this shouldn't
   // provide a big overhead.
-  shared_data_lock.writer_lock();
   gtm_transaction_data* data = tx_data.load();
   if (data != 0) 
     delete data;
-  shared_data_lock.writer_unlock();
   
   #ifdef DEBUG_INVALBRID
     uint32_t restarts = 0;
@@ -324,18 +322,20 @@ void
 rw_atomic_lock::reader_lock()
 {
   while (writer.load() != 0) // TODO Improve with pthread condition or futex
+  {
     cpu_relax(); 
+  }
   int32_t r = readers.load();
   bool succ = false;
   do
     {
       if (r == -1)
-	{	
-	  // There is still a writer present.
-	  cpu_relax(); 
-	  r = readers.load();
-	  continue; // TODO Improve with pthread condition or futex
-	}
+	    {
+	      // There is still a writer present.
+	      cpu_relax(); 
+	      r = readers.load();
+	      continue; // TODO Improve with pthread condition or futex
+	    }
       succ = readers.compare_exchange_strong(r,r+1);
     }
   while (!succ); // TODO Improve with pthread condition or futex
@@ -344,7 +344,7 @@ rw_atomic_lock::reader_lock()
 void
 rw_atomic_lock::reader_unlock()
 {
-  readers--;
+  readers.fetch_sub(1);
 }
 
 rw_atomic_lock::rw_atomic_lock()
