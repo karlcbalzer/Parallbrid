@@ -80,17 +80,25 @@ protected:
       return RESTART_VALIDATE_READ;
     if (w_conflict)
       return RESTART_VALIDATE_WRITE;
+#ifdef USE_HTM_FASTPATH
     // Wait while hardware transactions are in their post commit phase.
-    invalbrid_mg::hw_post_commit_lock.reader_lock();
-    uint32_t hw_pc = invalbrid_mg::hw_post_commit;
-    invalbrid_mg::hw_post_commit_lock.reader_unlock();
-    while (hw_pc != 0)
-    {
-      cpu_relax();
-      invalbrid_mg::hw_post_commit_lock.reader_lock();
-      hw_pc = invalbrid_mg::hw_post_commit;
-      invalbrid_mg::hw_post_commit_lock.reader_unlock();
+    uint32_t hw_pcc;
+    bool finished = false;
+    while (!finished) {
+      uint32_t htm_return = htm_begin();
+      if (htm_begin_success(htm_return)) {
+        hw_pcc = invalbrid_mg::hw_post_commit;
+        htm_commit();
+        if (hw_pcc == 0){
+          finished = true;
+        }
+        else {
+          printf("Transaction %lu waiting for hardware post commit %d\n", tx->id, hw_pcc);
+          cpu_relax();
+        }
+      }
     }
+#endif
     // If this transaction has been invalidated, it has to be restartet. This is
     // handled by the caller.
     gtm_restart_reason rr = spec_data->invalid_reason.load(memory_order_acquire);
@@ -192,14 +200,6 @@ public:
     invalbrid_mg::sw_cnt.fetch_add(1, std::memory_order_release);
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
-    // If this transaction has been restartet as a serial transaction, we have
-    // to acquire the commit lock. And set the shared state to serial.
-    if (tx->state & gtm_thread::STATE_SERIAL)
-    {
-        pthread_mutex_lock(&invalbrid_mg::commit_lock);
-        tx->shared_state.fetch_or(gtm_thread::STATE_SERIAL,std::memory_order_release);
-      invalbrid_mg::commit_lock_available = false;
-    }
     uint32_t local_cs = mg->commit_sequence.load(std::memory_order_acquire);
     while (local_cs & 1)
     {

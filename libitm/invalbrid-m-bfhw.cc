@@ -123,9 +123,15 @@ public:
     }
     tx->thread_lock.reader_unlock();
     // Finish post commit phase
-    invalbrid_mg::hw_post_commit_lock.writer_lock();
-    invalbrid_mg::hw_post_commit--;
-    invalbrid_mg::hw_post_commit_lock.writer_unlock();
+    bool finished = false;
+    while (!finished) {
+      uint32_t htm_return = htm_begin();
+      if (htm_begin_success(htm_return)) {
+        invalbrid_mg::hw_post_commit--;
+        htm_commit();
+        finished = true;
+      }
+    }
     bf->clear();
     tx->nesting = 0;
     tx->state = 0;
