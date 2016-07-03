@@ -82,7 +82,7 @@ public:
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
     // Adding the addr, previous value pair to the writelog.
-    spec_data->write_log->log(dst,tmp, size);
+    spec_data->write_log->log(dst, dst, size);
     spec_data->log_size = spec_data->write_log->size();
     ::memset(dst, c, size);
   }

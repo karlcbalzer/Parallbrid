@@ -179,6 +179,7 @@ GTM::gtm_thread::~gtm_thread()
   printf("SpecSW started:%d  SpecSW commited: %d\n", tx_types_started[SPEC_SW], tx_types_commited[SPEC_SW]);
   printf("SglSW started:%d  SglSW commited: %d\n", tx_types_started[SGL_SW], tx_types_commited[SGL_SW]);
   printf("IrrevocSW started:%d  IrrevocSW commited: %d\n", tx_types_started[IRREVOC_SW], tx_types_commited[IRREVOC_SW]);
+  printf("IrrevocAboSW started:%d  IrrevocAboSW commited: %d\n", tx_types_started[IRREVOCABO_SW], tx_types_commited[IRREVOCABO_SW]);
   printf("BFHW commited: %d\n", tx_types_commited[BFHW]);
   printf("LITEHW commited: %d\n", litehw_count.load());
 #endif
