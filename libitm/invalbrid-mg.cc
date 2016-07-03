@@ -492,14 +492,9 @@ invalbrid_mg::restart(gtm_restart_reason rr)
       // If the transaction may abort, we have to use specsw in serial mode.
       else
       {
-        // Continue using SpecSW but in serial mode
+        // Us IrrevocAboSW, because we still need an abortable transaction.
+        set_abi_disp(dispatch_invalbrid_irrevocabosw());
         ret = a_runInstrumentedCode;
-        pthread_mutex_lock(&commit_lock);
-        tx->shared_state.fetch_or(gtm_thread::STATE_SERIAL,std::memory_order_release);
-        invalbrid_mg::commit_lock_available = false;
-        tx->state |= gtm_thread::STATE_SERIAL;
-        invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
-        spec_data->invalid_reason.store(NO_RESTART,std::memory_order_relaxed);
       }
     }
   }

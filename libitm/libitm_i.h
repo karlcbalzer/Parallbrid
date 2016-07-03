@@ -29,7 +29,7 @@
 #ifndef LIBITM_I_H
 #define LIBITM_I_H 1
 
-#define DEBUG_INVALBRID 1
+//#define DEBUG_INVALBRID 1
 #include "libitm.h"
 #include "config.h"
 
