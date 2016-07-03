@@ -56,11 +56,11 @@ void ITM_REGPARM
 _ITM_abortTransaction (_ITM_abortReason reason)
 {
   if (likely(_ITM_inTransaction() != outsideTransaction))
-    {
-      method_group::method_gr->abort(reason);
-      __builtin_unreachable();
-    }
-  else 
+  {
+    method_group::method_gr->abort(reason);
+    __builtin_unreachable();
+  }
+  else
     GTM_fatal("abortTransaction can only be called within a transaction.\n");
 }
 
@@ -86,7 +86,7 @@ _ITM_changeTransactionMode (_ITM_transactionState state)
 
 void set_default_method_group();
 
-// This function is called from assembler. It calls the method_groups begin 
+// This function is called from assembler. It calls the method_groups begin
 // function, which in turn may call a dispatch specific begin function.
 uint32_t
 GTM::method_group::begin_transaction(uint32_t prop, const gtm_jmpbuf *jb)
@@ -111,7 +111,7 @@ GTM::gtm_thread::operator new (size_t s)
 }
 
 // Free the given transaction. Raises an error if the transaction is still
-// in use. 
+// in use.
 void
 GTM::gtm_thread::operator delete(void *tx)
 {
@@ -144,22 +144,22 @@ GTM::gtm_thread::~gtm_thread()
   thread_lock.writer_lock();
   gtm_thread **prev = &list_of_threads;
   for (; *prev; prev = &(*prev)->next_thread)
+  {
+    if (*prev == this)
     {
-      if (*prev == this)
-	{
-	  *prev = (*prev)->next_thread;
-	  break;
-	}
+      *prev = (*prev)->next_thread;
+      break;
     }
+  }
   number_of_threads--;
   // Taking the shared_data_lock should be unnecessary, because every other
   // thread that trys to access tx_data should acquire the thread_lock as a
   // reader. But since thread destruction is hopefully uncommon, this shouldn't
   // provide a big overhead.
   gtm_transaction_data* data = tx_data.load();
-  if (data != 0) 
+  if (data != 0)
     delete data;
-  
+
 #ifdef DEBUG_INVALBRID
   uint32_t restarts = 0;
   for (int i=0; i<NUM_RESTARTS; i++) restarts += restart_reason[i];
@@ -182,7 +182,7 @@ GTM::gtm_thread::~gtm_thread()
   printf("BFHW commited: %d\n", tx_types_commited[BFHW]);
   printf("LITEHW commited: %d\n", litehw_count.load());
 #endif
-  
+
   thread_lock.writer_unlock();
 }
 
@@ -231,7 +231,7 @@ GTM::gtm_thread::rollback (gtm_transaction_cp *cp, bool aborting)
       assert(cp->disp == abi_disp());
       memcpy(&alloc_actions, &cp->alloc_actions, sizeof(alloc_actions));
       nesting = cp->nesting;
-      
+
     }
   else
     {
@@ -239,21 +239,21 @@ GTM::gtm_thread::rollback (gtm_transaction_cp *cp, bool aborting)
       // Restore the jump buffer and transaction properties, which we will
       // need for the longjmp used to restart or abort the transaction.
       if (parent_txns.size() > 0)
-	{
-	  jb = parent_txns[0].jb;
-	  id = parent_txns[0].id;
-	  prop = parent_txns[0].prop;
-	}
+    {
+      jb = parent_txns[0].jb;
+      id = parent_txns[0].id;
+      prop = parent_txns[0].prop;
+    }
       // Reset the transaction. Do not reset this->state, which is handled by
       // the callers. Note that if we are not aborting, we reset the
       // transaction to the point after having executed begin_transaction
       // (we will return from it), so the nesting level must be one, not zero.
       nesting = (aborting ? 0 : 1);
       if (aborting)
-	{
-	  cxa_catch_count = 0;
-	  restart_total = 0;
-	}
+    {
+      cxa_catch_count = 0;
+      restart_total = 0;
+    }
       parent_txns.clear();
     }
 
@@ -304,11 +304,11 @@ rw_atomic_lock::writer_lock()
   writer.fetch_add(1, std::memory_order_acq_rel);
   int32_t r = 0;
   while (!readers.compare_exchange_strong(r, -1, std::memory_order_acq_rel))
-  { 
+  {
     r = 0;
     cpu_relax(); // TODO Improve with pthread condition or futex
   }
-  // We locked readers and other writers out by setting readers to -1. 
+  // We locked readers and other writers out by setting readers to -1.
 }
 
 void
@@ -323,21 +323,21 @@ rw_atomic_lock::reader_lock()
 {
   while (writer.load(std::memory_order_acquire) != 0) // TODO Improve with pthread condition or futex
   {
-    cpu_relax(); 
+    cpu_relax();
   }
   int32_t r = readers.load(std::memory_order_acquire);
   bool succ = false;
   do
+  {
+    if (r == -1)
     {
-      if (r == -1)
-	    {
-	      // There is still a writer present.
-	      cpu_relax(); 
-	      r = readers.load(std::memory_order_acquire);
-	      continue; // TODO Improve with pthread condition or futex
-	    }
-      succ = readers.compare_exchange_strong(r,r+1, std::memory_order_acq_rel);
+      // There is still a writer present.
+      cpu_relax();
+      r = readers.load(std::memory_order_acquire);
+      continue; // TODO Improve with pthread condition or futex
     }
+    succ = readers.compare_exchange_strong(r,r+1, std::memory_order_acq_rel);
+  }
   while (!succ); // TODO Improve with pthread condition or futex
 }
 
@@ -357,14 +357,14 @@ namespace {
 // Mutex for setting the default method group.
 static pthread_mutex_t mg_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Parses the ITM_DEFAULT_METHOD_GROUP enviroment variable and returns 
+// Parses the ITM_DEFAULT_METHOD_GROUP enviroment variable and returns
 // the desired method group.
 static method_group*
 parse_default_method_group()
 {
   const char *env = getenv("ITM_DEFAULT_METHOD_GROUP");
   method_group *meth_gr = 0;
-  if (env == NULL) 
+  if (env == NULL)
     {
       return GTM::method_group_invalbrid();
     }
@@ -392,8 +392,8 @@ parse_default_method_group()
 } // Anon
 
 
-// Sets the default method group. This function is called from within 
-// begin_transaction when the first transaction starts or when 
+// Sets the default method group. This function is called from within
+// begin_transaction when the first transaction starts or when
 // _ITM_getTransactionId or _ITM_inTransaction are called with no prior
 // transactional execution.
 void

@@ -208,15 +208,14 @@ struct gtm_log
 
   // In local.cc
   // Commits the log entrys  to memory.
-  void commit (gtm_thread* tx);
+  void commit (gtm_thread* tx, size_t from_size = 0);
 
   static void *operator new(size_t);
   static void operator delete(void *);
 };
 
 // An undolog for the ITM logging functions. Can also be used as an undolog for
-// eager versionmanagament transactions. Implemented with the gtm_log and commit
-// and rollback switched.
+// eager versionmanagament transactions.
 struct gtm_undolog
 {
   vector<gtm_word> undolog;
@@ -424,6 +423,7 @@ extern void set_default_method_group();
 extern abi_dispatch *dispatch_invalbrid_sglsw();
 extern abi_dispatch *dispatch_invalbrid_specsw();
 extern abi_dispatch *dispatch_invalbrid_irrevocsw();
+extern abi_dispatch *dispatch_invalbrid_irrevocabosw();
 extern abi_dispatch *dispatch_invalbrid_bfhw();
 
 // The method groups that can be uses

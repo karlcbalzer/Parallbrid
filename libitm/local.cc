@@ -35,35 +35,35 @@ namespace GTM HIDDEN {
 // memcpy in terms of stack frames, so just ensure that for now using the
 // noinline.
 void __attribute__((noinline))
-gtm_log::commit (gtm_thread* tx)
+gtm_log::commit (gtm_thread* tx, size_t from_size)
 {
   size_t i, n = log_data.size();
   void *top = mask_stack_top(tx);
   void *bot = mask_stack_bottom(tx);
 
   if (n > 0)
+  {
+    for (i = from_size; i < n; )
     {
-      for (i = 0; i < n; )
-	{
-          void *ptr = (void *) log_data[i++];
-          size_t len = log_data[i++];
-          size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
-          // Filter out any updates that overlap the libitm stack.  We don't
-          // bother filtering out just the overlapping bytes because we don't
-          // merge writes and thus any overlapping write is either bogus or
-          // would restore data on stack frames that are not in use anymore.
-          // FIXME The memcpy can/will end up as another call but we
-          // calculated BOT based on the current function.  Can we inline or
-          // reimplement this without too much trouble due to unaligned calls
-          // and still have good performance, so that we can remove the hack
-          // in mask_stack_bottom()?
-          if (likely(ptr > top || (uint8_t*)ptr + len <= bot))
-            __builtin_memcpy (ptr, &log_data[i], len);
-	  
-          i += words;
-	}
-      log_data.clear();
+      void *ptr = (void *) log_data[i++];
+      size_t len = log_data[i++];
+      size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
+      // Filter out any updates that overlap the libitm stack.  We don't
+      // bother filtering out just the overlapping bytes because we don't
+      // merge writes and thus any overlapping write is either bogus or
+      // would restore data on stack frames that are not in use anymore.
+      // FIXME The memcpy can/will end up as another call but we
+      // calculated BOT based on the current function.  Can we inline or
+      // reimplement this without too much trouble due to unaligned calls
+      // and still have good performance, so that we can remove the hack
+      // in mask_stack_bottom()?
+      if (likely(ptr > top || (uint8_t*)ptr + len <= bot))
+        __builtin_memcpy (ptr, &log_data[i], len);
+
+      i += words;
     }
+    log_data.set_size(from_size);
+  }
 }
 
 void
@@ -77,22 +77,22 @@ gtm_log::load_value(void* dst,const void* r_addr, size_t r_len)
     w_len = log_data[i++];
     size_t words = (w_len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
     if (r_addr >= w_addr && r_addr < (uint8_t*)w_addr + w_len)
-      {
-	// The read address starts in this entry, so we have to load parts or
-	// all of it.
-	size_t offset = (size_t)r_addr - (size_t)w_addr;
-	::memcpy(dst,(uint8_t*)&log_data[i] + offset,
-		 r_len <= w_len - offset ? r_len : w_len - offset);  
-      }
+    {
+      // The read address starts in this entry, so we have to load parts or
+      // all of it.
+      size_t offset = (size_t)r_addr - (size_t)w_addr;
+      ::memcpy(dst,(uint8_t*)&log_data[i] + offset,
+           r_len <= w_len - offset ? r_len : w_len - offset);
+    }
     else
       if (w_addr >= r_addr && w_addr < (uint8_t*)r_addr + r_len)
-	{
-	  // The read address does not start in this entry, but its value is
-	  // part of this entry.
-	  size_t offset = (size_t) w_addr - (size_t) r_addr;
-	  ::memcpy((uint8_t*)dst+offset, (uint8_t*)&log_data[i],
-		   w_len <= r_len - offset ? w_len : r_len - offset);
-	}
+      {
+        // The read address does not start in this entry, but its value is
+        // part of this entry.
+        size_t offset = (size_t) w_addr - (size_t) r_addr;
+        ::memcpy((uint8_t*)dst+offset, (uint8_t*)&log_data[i],
+             w_len <= r_len - offset ? w_len : r_len - offset);
+      }
     i+=words;
   }
 }
@@ -127,7 +127,7 @@ gtm_undolog::rollback (gtm_thread* tx, size_t until_size)
   if (n > 0)
     {
       for (i = n; i-- > until_size; )
-	{
+    {
           void *ptr = (void *) undolog[i--];
           size_t len = undolog[i];
           size_t words = (len + sizeof(gtm_word) - 1) / sizeof(gtm_word);
@@ -143,7 +143,7 @@ gtm_undolog::rollback (gtm_thread* tx, size_t until_size)
           // in mask_stack_bottom()?
           if (likely(ptr > top || (uint8_t*)ptr + len <= bot))
             __builtin_memcpy (ptr, &undolog[i], len);
-	}
+    }
       undolog.set_size(until_size);
     }
 }

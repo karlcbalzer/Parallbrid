@@ -192,7 +192,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
             // transaction uses the transactional_data.
             tx->shared_state &= ~gtm_thread::STATE_SOFTWARE;
             // Clear the transaction data.
-            gtm_transaction_data *data = tx->tx_data.load();
+            gtm_transaction_data *data = tx->tx_data.load(std::memory_order_relaxed);
             if (data != NULL)
               data->clear();
             tx->state &= ~gtm_thread::STATE_SOFTWARE;
@@ -499,7 +499,7 @@ invalbrid_mg::restart(gtm_restart_reason rr)
         invalbrid_mg::commit_lock_available = false;
         tx->state |= gtm_thread::STATE_SERIAL;
         invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
-        spec_data->invalid_reason.store(NO_RESTART,std::memory_order_relaxed); 
+        spec_data->invalid_reason.store(NO_RESTART,std::memory_order_relaxed);
       }
     }
   }

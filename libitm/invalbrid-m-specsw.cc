@@ -153,7 +153,7 @@ protected:
 
 public:
   static void memtransfer_static(void *dst, const void* src, size_t size,
-      bool may_overlap, ls_modifier dst_mod, ls_modifier src_mod)
+                                 bool may_overlap, ls_modifier dst_mod, ls_modifier src_mod)
   {
     // read phase
     gtm_thread *tx = gtm_thr();
