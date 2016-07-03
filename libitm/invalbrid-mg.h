@@ -29,7 +29,7 @@
 #include <pthread.h>
 
 
-#define HW_RESTARTS 10
+#define HW_RESTARTS 20
 #define SW_RESTARTS 5
 
 namespace GTM HIDDEN {

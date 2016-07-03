@@ -93,7 +93,6 @@ protected:
           finished = true;
         }
         else {
-          printf("Transaction %lu waiting for hardware post commit %d\n", tx->id, hw_pcc);
           cpu_relax();
         }
       }

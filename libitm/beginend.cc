@@ -160,28 +160,28 @@ GTM::gtm_thread::~gtm_thread()
   if (data != 0) 
     delete data;
   
-  #ifdef DEBUG_INVALBRID
-    uint32_t restarts = 0;
-    for (int i=0; i<NUM_RESTARTS; i++) restarts += restart_reason[i];
-    printf("RESTART_REALLOCATE: %d\n", restart_reason[RESTART_REALLOCATE]);
-    printf("RESTART_LOCKED_READ: %d\n", restart_reason[RESTART_LOCKED_READ]);
-    printf("RESTART_LOCKED_WRITE: %d\n", restart_reason[RESTART_LOCKED_WRITE]);
-    printf("RESTART_VALIDATE_READ: %d\n", restart_reason[RESTART_VALIDATE_READ]);
-    printf("RESTART_VALIDATE_WRITE: %d\n", restart_reason[RESTART_VALIDATE_WRITE]);
-    printf("RESTART_VALIDATE_COMMIT: %d\n", restart_reason[RESTART_VALIDATE_COMMIT]);
-    printf("RESTART_SERIAL_IRR: %d\n", restart_reason[RESTART_SERIAL_IRR]);
-    printf("RESTART_NOT_READONLY: %d\n", restart_reason[RESTART_NOT_READONLY]);
-    printf("RESTART_CLOSED_NESTING: %d\n", restart_reason[RESTART_CLOSED_NESTING]);
-    printf("RESTART_INIT_METHOD_GROUP: %d\n", restart_reason[RESTART_INIT_METHOD_GROUP]);
-    printf("RESTART_UNINSTRUMENTED_CODEPATH: %d\n",restart_reason[RESTART_UNINSTRUMENTED_CODEPATH]);
-    printf("RESTART_TRY_AGAIN: %d\n", restart_reason[RESTART_TRY_AGAIN]);
-    printf("total: %d\n", restarts);
-    printf("SpecSW started:%d  SpecSW commited: %d\n", tx_types_started[SPEC_SW], tx_types_commited[SPEC_SW]);
-    printf("SglSW started:%d  SglSW commited: %d\n", tx_types_started[SGL_SW], tx_types_commited[SGL_SW]);
-    printf("IrrevocSW started:%d  IrrevocSW commited: %d\n", tx_types_started[IRREVOC_SW], tx_types_commited[IRREVOC_SW]);
-    printf("BFHW commited: %d\n", tx_types_commited[BFHW]);
-    printf("LITEHW commited: %d\n", litehw_count.load());
-  #endif
+#ifdef DEBUG_INVALBRID
+  uint32_t restarts = 0;
+  for (int i=0; i<NUM_RESTARTS; i++) restarts += restart_reason[i];
+  printf("RESTART_REALLOCATE: %d\n", restart_reason[RESTART_REALLOCATE]);
+  printf("RESTART_LOCKED_READ: %d\n", restart_reason[RESTART_LOCKED_READ]);
+  printf("RESTART_LOCKED_WRITE: %d\n", restart_reason[RESTART_LOCKED_WRITE]);
+  printf("RESTART_VALIDATE_READ: %d\n", restart_reason[RESTART_VALIDATE_READ]);
+  printf("RESTART_VALIDATE_WRITE: %d\n", restart_reason[RESTART_VALIDATE_WRITE]);
+  printf("RESTART_VALIDATE_COMMIT: %d\n", restart_reason[RESTART_VALIDATE_COMMIT]);
+  printf("RESTART_SERIAL_IRR: %d\n", restart_reason[RESTART_SERIAL_IRR]);
+  printf("RESTART_NOT_READONLY: %d\n", restart_reason[RESTART_NOT_READONLY]);
+  printf("RESTART_CLOSED_NESTING: %d\n", restart_reason[RESTART_CLOSED_NESTING]);
+  printf("RESTART_INIT_METHOD_GROUP: %d\n", restart_reason[RESTART_INIT_METHOD_GROUP]);
+  printf("RESTART_UNINSTRUMENTED_CODEPATH: %d\n",restart_reason[RESTART_UNINSTRUMENTED_CODEPATH]);
+  printf("RESTART_TRY_AGAIN: %d\n", restart_reason[RESTART_TRY_AGAIN]);
+  printf("total: %d\n", restarts);
+  printf("SpecSW started:%d  SpecSW commited: %d\n", tx_types_started[SPEC_SW], tx_types_commited[SPEC_SW]);
+  printf("SglSW started:%d  SglSW commited: %d\n", tx_types_started[SGL_SW], tx_types_commited[SGL_SW]);
+  printf("IrrevocSW started:%d  IrrevocSW commited: %d\n", tx_types_started[IRREVOC_SW], tx_types_commited[IRREVOC_SW]);
+  printf("BFHW commited: %d\n", tx_types_commited[BFHW]);
+  printf("LITEHW commited: %d\n", litehw_count.load());
+#endif
   
   thread_lock.writer_unlock();
 }
@@ -301,9 +301,9 @@ GTM::gtm_transaction_cp::commit(gtm_thread* tx)
 void
 rw_atomic_lock::writer_lock()
 {
-  writer++;
+  writer.fetch_add(1, std::memory_order_acq_rel);
   int32_t r = 0;
-  while (!readers.compare_exchange_strong(r, -1))
+  while (!readers.compare_exchange_strong(r, -1, std::memory_order_acq_rel))
   { 
     r = 0;
     cpu_relax(); // TODO Improve with pthread condition or futex
@@ -314,18 +314,18 @@ rw_atomic_lock::writer_lock()
 void
 rw_atomic_lock::writer_unlock()
 {
-  readers++;
+  readers.fetch_add(1, std::memory_order_release);
   writer--;
 }
 
 void
 rw_atomic_lock::reader_lock()
 {
-  while (writer.load() != 0) // TODO Improve with pthread condition or futex
+  while (writer.load(std::memory_order_acquire) != 0) // TODO Improve with pthread condition or futex
   {
     cpu_relax(); 
   }
-  int32_t r = readers.load();
+  int32_t r = readers.load(std::memory_order_acquire);
   bool succ = false;
   do
     {
@@ -333,10 +333,10 @@ rw_atomic_lock::reader_lock()
 	    {
 	      // There is still a writer present.
 	      cpu_relax(); 
-	      r = readers.load();
+	      r = readers.load(std::memory_order_acquire);
 	      continue; // TODO Improve with pthread condition or futex
 	    }
-      succ = readers.compare_exchange_strong(r,r+1);
+      succ = readers.compare_exchange_strong(r,r+1, std::memory_order_acq_rel);
     }
   while (!succ); // TODO Improve with pthread condition or futex
 }
@@ -344,13 +344,13 @@ rw_atomic_lock::reader_lock()
 void
 rw_atomic_lock::reader_unlock()
 {
-  readers.fetch_sub(1);
+  readers.fetch_sub(1, std::memory_order_acq_rel);
 }
 
 rw_atomic_lock::rw_atomic_lock()
 {
-  writer.store(0);
-  readers.store(0);
+  writer.store(0, std::memory_order_release);
+  readers.store(0, std::memory_order_release);
 }
 
 namespace {

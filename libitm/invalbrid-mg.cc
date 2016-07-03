@@ -452,6 +452,7 @@ invalbrid_mg::restart(gtm_restart_reason rr)
   assert(rr != NO_RESTART);
   // Only non irrevocable transactions my restart.
   assert(!(tx->state & gtm_thread::STATE_IRREVOCABLE));
+  assert(!(tx->state & gtm_thread::STATE_SERIAL));
   tx->restart_total++;
   tx->restart_reason[rr]++;
   tx->rollback();
@@ -493,7 +494,6 @@ invalbrid_mg::restart(gtm_restart_reason rr)
       {
         // Continue using SpecSW but in serial mode
         ret = a_runInstrumentedCode;
-        printf("restart of abortable transaction\n");
         pthread_mutex_lock(&commit_lock);
         tx->shared_state.fetch_or(gtm_thread::STATE_SERIAL,std::memory_order_release);
         invalbrid_mg::commit_lock_available = false;
@@ -514,7 +514,7 @@ invalbrid_mg::invalidate()
   invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
   tx->thread_lock.reader_lock();
   gtm_thread **prev = &(tx->list_of_threads);
-  bloomfilter *bf = spec_data->writeset.load();
+  bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
   for (; *prev; prev = &(*prev)->next_thread)
   {
     if (*prev == tx)
@@ -527,8 +527,8 @@ invalbrid_mg::invalidate()
     {
       invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load(std::memory_order_acquire);
       assert(prev_data != NULL);
-      bloomfilter *w_bf = prev_data->writeset.load();
-      bloomfilter *r_bf = prev_data->readset.load();
+      bloomfilter *w_bf = prev_data->writeset.load(std::memory_order_acquire);
+      bloomfilter *r_bf = prev_data->readset.load(std::memory_order_acquire);
       if (bf->intersects(w_bf))
       {
         prev_data->invalid_reason.store(RESTART_LOCKED_WRITE, memory_order_release);
@@ -556,8 +556,8 @@ invalbrid_tx_data::invalbrid_tx_data()
 
 invalbrid_tx_data::~invalbrid_tx_data()
 {
-  delete writeset.load();
-  delete readset.load();
+  delete writeset.load(std::memory_order_relaxed);
+  delete readset.load(std::memory_order_relaxed);
   if (write_log != NULL)
     delete write_log;
 }
