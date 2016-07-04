@@ -218,13 +218,13 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
   }
   else
   {
+    uint32_t software_count = sw_cnt.load(memory_order_acquire);
     if (prop & pr_hasNoAbort)
     // If no abort is present, any of the Invalbrid transactions can be choosen.
     {
       if (prop & pr_doesGoIrrevocable)
       // Only irrevocsw or sglsw can be used at this point.
       {
-        uint32_t software_count = sw_cnt.load(memory_order_acquire);
         if (((prop & pr_instrumentedCode) || (prop & pr_readOnly))
         && (software_count != 0))
           // Use irrevocsw if software transactions(specsws) are present and
@@ -236,7 +236,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
       }
       else
       {
-        if (prop & pr_instrumentedCode)
+        if (prop & pr_instrumentedCode && (software_count != 0 || commit_sequence.load(memory_order_acquire) & 1))
           set_abi_disp(dispatch_invalbrid_specsw());
         else
           set_abi_disp(dispatch_invalbrid_sglsw());
@@ -245,7 +245,10 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
     else
     {
       assert(prop & pr_instrumentedCode);
-      set_abi_disp(dispatch_invalbrid_specsw());
+      if (software_count != 0)
+        set_abi_disp(dispatch_invalbrid_specsw());
+      else
+        set_abi_disp(dispatch_invalbrid_irrevocabosw());
     }
   }
 
