@@ -159,8 +159,6 @@ GTM::gtm_thread::~gtm_thread()
   gtm_transaction_data* data = tx_data.load(std::memory_order_relaxed);
   if (data != NULL)
     delete data;
-  if (undolog != NULL)
-    delete undolog;
 
 #ifdef DEBUG_INVALBRID
   uint32_t restarts = 0;
@@ -206,7 +204,6 @@ GTM::gtm_thread::gtm_thread ()
   // transaction when the current thread terminates.
   if (pthread_setspecific(thr_release_key, this))
     GTM_fatal("Setting thread release TLS key failed.");
-  undolog = new gtm_undolog();
 }
 
 void
