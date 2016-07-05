@@ -237,6 +237,9 @@ struct gtm_undolog
 
   // In local.cc
   void rollback (gtm_thread* tx, size_t until_size = 0);
+
+  static void *operator new(size_t);
+  static void operator delete(void *);
 };
 
 // Contains all thread-specific data required by the entire library.
