@@ -245,8 +245,8 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
     else
     {
       assert(prop & pr_instrumentedCode);
-      // the commit_lock_available variable is not synchronized, this leads to no wrong behaviour, just to less specsw transactions.
-      if (software_count != 0 || commit_lock_available == false)
+      // if the commit lock is taken or there are other software transactions running, then use specsw.
+      if (software_count != 0 || committing_tx.load(std::memory_order_acquire) != NULL)
         set_abi_disp(dispatch_invalbrid_specsw());
       else
         set_abi_disp(dispatch_invalbrid_irrevocabosw());
