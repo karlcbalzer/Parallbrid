@@ -26,7 +26,6 @@
 
 #include "libitm_i.h"
 #include "bloomfilter.h"
-#include <pthread.h>
 
 
 #define HW_RESTARTS 20
@@ -41,6 +40,8 @@ struct invalbrid_tx_data: public gtm_transaction_data
     // The write_log stores the speculative writes.
     gtm_log *write_log;
     size_t log_size;
+    // this undolog is only used by irrevocabosw transactions.
+    gtm_undolog *undo_log;
     // The local commit sequence is used by specsws to detect whether an sglsw
     // transaction is or was executing since the specsw transaction started.
     uint32_t local_commit_sequence;
@@ -61,13 +62,15 @@ struct invalbrid_tx_data: public gtm_transaction_data
     ~invalbrid_tx_data();
   };
 
+// This is the tx data for hardware transactions, BFHW by name.
+// This is nesseccary because hardwaretransactions can't use atomics.
 struct invalbrid_hw_tx_data: public gtm_transaction_data
   {
     hw_bloomfilter* writeset;
 
     invalbrid_hw_tx_data();
     ~invalbrid_hw_tx_data();
-    
+
     static void *operator new(size_t);
     static void operator delete(void *);
 

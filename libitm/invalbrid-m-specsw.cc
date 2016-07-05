@@ -212,6 +212,14 @@ public:
         spec_data->write_log = new gtm_log();
         tx->tx_data.store((gtm_transaction_data*)spec_data, std::memory_order_release);
     }
+    else
+    {
+      invalbrid_tx_data *data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+      if (data->write_log == NULL)
+      {
+        data->write_log = new gtm_log();
+      }
+    }
     // Set the shared state to STATE_SOFTWARE, so invalidating transactions
     // know that this is a transaction that carrys a read and write set. We do
     // not need to take the shared_data_lock, since shared_state is set
