@@ -54,7 +54,7 @@ protected:
     // one exists, won't be destroyed while we're working on it.
     tx->thread_lock.reader_lock();
     gtm_thread *c_tx = mg->committing_tx.load(std::memory_order_acquire);
-    bool r_conflict = false, w_conflict = false;
+    bool r_conflict = false;
     if (c_tx !=0 && c_tx != tx)
     {
       // We do not have to check the state of the committing tx, since only
@@ -67,19 +67,19 @@ protected:
       bloomfilter *c_bf = c_tx_data->writeset.load(std::memory_order_acquire);
       // Load this threads read- and writeset.
       bloomfilter *r_bf = spec_data->readset.load(std::memory_order_relaxed);
-      bloomfilter *w_bf = spec_data->writeset.load(std::memory_order_relaxed);
+//      bloomfilter *w_bf = spec_data->writeset.load(std::memory_order_relaxed);
       // Intersect this transactions read- and writeset with the writeset of the
       // committing transaction.
       r_conflict = r_bf->intersects(c_bf);
-      w_conflict = w_bf->intersects(c_bf);
+//      w_conflict = w_bf->intersects(c_bf);
     }
     tx->thread_lock.reader_unlock();
     // If this transactions read- or writeset intersect with the writeset of
     // the committing transaction, then this transaction has to be restarted.
     if (r_conflict)
       return RESTART_VALIDATE_READ;
-    if (w_conflict)
-      return RESTART_VALIDATE_WRITE;
+//    if (w_conflict)
+//      return RESTART_VALIDATE_WRITE;
 #ifdef USE_HTM_FASTPATH
     // Wait while hardware transactions are in their post commit phase.
     uint32_t hw_pcc;
