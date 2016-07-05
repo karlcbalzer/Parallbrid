@@ -632,8 +632,6 @@ invalbrid_tx_data::load(gtm_transaction_data* tx_data)
   log_size = data->log_size;
   if(write_log != NULL)
     write_log->rollback(log_size);
-  if (undo_log != NULL)
-    undo_log->rollback(tx, log_size);
   local_commit_sequence = data->local_commit_sequence;
   // The invalid flag and reason are not restored to prevent lost updates on them.
   // The data object is no longer needed after the containing information has

@@ -150,6 +150,9 @@ public:
       // Now the checkpoint gets loaded to restore the tx data to the state before
       // this nested transaction.
       data->load(cp->tx_data);
+      // Rollback the undolog.
+      invalbrid_tx_data *inval_data = (invalbrid_tx_data*) data;
+      inval_data->undo_log->rollback(tx, inval_data->log_size);
     }
     else
     {
