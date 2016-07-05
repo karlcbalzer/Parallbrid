@@ -102,6 +102,14 @@ public:
       spec_data->write_log = new gtm_log();
       tx->tx_data.store((gtm_transaction_data*)spec_data, std::memory_order_release);
     }
+    else
+    {
+      invalbrid_tx_data *data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+      if (data->write_log == NULL)
+      {
+        data->write_log = new gtm_log();
+      }
+    }
     #ifdef DEBUG_INVALBRID
       tx->tx_types_started[IRREVOC_SW]++;
     #endif

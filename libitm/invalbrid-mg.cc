@@ -555,6 +555,8 @@ invalbrid_tx_data::~invalbrid_tx_data()
   delete readset.load(std::memory_order_relaxed);
   if (write_log != NULL)
     delete write_log;
+  if (undo_log != NULL)
+    delete undo_log;
 }
 
 // Allocate a transaction data structure.
@@ -583,6 +585,8 @@ invalbrid_tx_data::clear()
   log_size = 0;
   if (write_log != NULL)
     write_log->rollback();
+  if (undo_log != NULL)
+    undo_log->commit();
   local_commit_sequence = 0;
   bloomfilter *ws = writeset.load(std::memory_order_relaxed);
   bloomfilter *rs = readset.load(std::memory_order_relaxed);
@@ -623,7 +627,10 @@ invalbrid_tx_data::load(gtm_transaction_data* tx_data)
   ws->set(others_ws);
   rs->set(others_rs);
   log_size = data->log_size;
-  write_log->rollback(data->log_size);
+  if(write_log != NULL)
+    write_log->rollback(log_size);
+  if (undo_log != NULL)
+    undo_log->rollback(tx, log_size);
   local_commit_sequence = data->local_commit_sequence;
   // The invalid flag and reason are not restored to prevent lost updates on them.
   // The data object is no longer needed after the containing information has

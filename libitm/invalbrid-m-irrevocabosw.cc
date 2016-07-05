@@ -49,8 +49,8 @@ protected:
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address((void*) addr, sizeof(V));
     // Adding the addr, previous value pair to the writelog.
-    spec_data->write_log->log((void*)addr,(void*)addr, sizeof(V));
-    spec_data->log_size = spec_data->write_log->size();
+    spec_data->undo_log->log((void*)addr, sizeof(V));
+    spec_data->log_size = spec_data->undo_log->size();
     *addr = value;
   }
 
@@ -65,8 +65,8 @@ public:
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
     // Adding the addr, previous value pair to the writelog.
-    spec_data->write_log->log(dst, dst, size);
-    spec_data->log_size = spec_data->write_log->size();
+    spec_data->undo_log->log(dst, size);
+    spec_data->log_size = spec_data->undo_log->size();
     if (!may_overlap)
       ::memcpy(dst, src, size);
     else
@@ -82,8 +82,8 @@ public:
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
     // Adding the addr, previous value pair to the writelog.
-    spec_data->write_log->log(dst, dst, size);
-    spec_data->log_size = spec_data->write_log->size();
+    spec_data->undo_log->log(dst, size);
+    spec_data->log_size = spec_data->undo_log->size();
     ::memset(dst, c, size);
   }
 
@@ -105,8 +105,16 @@ public:
     if (unlikely(tx->tx_data.load(std::memory_order_relaxed) == NULL))
     {
       invalbrid_tx_data *spec_data = new invalbrid_tx_data();
-      spec_data->write_log = new gtm_log();
+      spec_data->undo_log = new gtm_undolog();
       tx->tx_data.store((gtm_transaction_data*)spec_data, std::memory_order_release);
+    }
+    else
+    {
+      invalbrid_tx_data *data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+      if (data->undo_log == NULL)
+      {
+        data->undo_log = new gtm_undolog();
+      }
     }
     #ifdef DEBUG_INVALBRID
       tx->tx_types_started[IRREVOCABO_SW]++;
@@ -139,22 +147,17 @@ public:
     if (cp)
     {
       gtm_transaction_data *data = tx->tx_data.load(std::memory_order_relaxed);
-      // We have to undo the changes done by this transaction, so we commit the
-      // write_log from the size of the check point.
-      invalbrid_tx_data *invalbrid_data = (invalbrid_tx_data*) data;
-      invalbrid_tx_data *cp_data = (invalbrid_tx_data*) cp->tx_data;
-      invalbrid_data->write_log->commit(tx, cp_data->log_size);
-      // Now the checkpoint is loaded to restore the tx data to the state before
+      // Now the checkpoint gets loaded to restore the tx data to the state before
       // this nested transaction.
       data->load(cp->tx_data);
     }
     else
     {
       // This rollback belongs to an outer abort of an serial mode software transaction, so we have
-      // to restore the previous memory state by unrolling the writelock and publish the previous data. After that we release the commit lock.
+      // to restore the previous memory state by unrolling the undolog and publish the previous data. After that we release the commit lock.
       gtm_thread *tx = gtm_thr();
       invalbrid_tx_data *data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
-      data->write_log->commit(tx, 0);
+      data->undo_log->rollback(tx, 0);
       invalbrid_mg::commit_lock_available = true;
       pthread_mutex_unlock(&invalbrid_mg::commit_lock);
       tx->shared_state.store(0, std::memory_order_release);
