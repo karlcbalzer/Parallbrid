@@ -148,6 +148,27 @@ gtm_undolog::rollback (gtm_thread* tx, size_t until_size)
     }
 }
 
+// Allocate a undolog structure.
+void *
+gtm_undolog::operator new (size_t s)
+{
+  void *log;
+
+  assert(s == sizeof(gtm_undolog));
+
+  log = xmalloc (sizeof (gtm_undolog), true);
+
+  return log;
+}
+
+// Free the given log.
+void
+gtm_undolog::operator delete(void *log)
+{
+  free(log);
+}
+
+
 void ITM_REGPARM
 GTM_LB (const void *ptr, size_t len)
 {
