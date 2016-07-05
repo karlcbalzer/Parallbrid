@@ -551,6 +551,8 @@ invalbrid_tx_data::invalbrid_tx_data()
   invalid_reason.store(NO_RESTART, std::memory_order_release);
   readset.store(new bloomfilter());
   writeset.store(new bloomfilter());
+  write_log = NULL;
+  undo_log = NULL;
 }
 
 invalbrid_tx_data::~invalbrid_tx_data()

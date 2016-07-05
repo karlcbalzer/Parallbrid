@@ -95,13 +95,6 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
-    // Acquire the commit lock.
-    pthread_mutex_lock(&invalbrid_mg::commit_lock);
-    invalbrid_mg::commit_lock_available = false;
-    mg->committing_tx.store(tx, std::memory_order_release);
-    tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_SOFTWARE;
-    tx->shared_state.store( gtm_thread::STATE_SERIAL
-              | gtm_thread::STATE_SOFTWARE, std::memory_order_release);
     if (unlikely(tx->tx_data.load(std::memory_order_relaxed) == NULL))
     {
       invalbrid_tx_data *spec_data = new invalbrid_tx_data();
@@ -116,6 +109,13 @@ public:
         data->undo_log = new gtm_undolog();
       }
     }
+    // Acquire the commit lock.
+    pthread_mutex_lock(&invalbrid_mg::commit_lock);
+    invalbrid_mg::commit_lock_available = false;
+    mg->committing_tx.store(tx, std::memory_order_release);
+    tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_SOFTWARE;
+    tx->shared_state.store( gtm_thread::STATE_SERIAL
+              | gtm_thread::STATE_SOFTWARE, std::memory_order_release);
     #ifdef DEBUG_INVALBRID
       tx->tx_types_started[IRREVOCABO_SW]++;
     #endif
