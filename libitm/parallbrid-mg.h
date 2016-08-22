@@ -21,8 +21,8 @@
    a copy of the GCC Runtime Library Exception along with this program;
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
-#ifndef INVALBRID_MG_H
-#define INVALBRID_MG_H
+#ifndef PARALLBRID_MG_H
+#define PARALLBRID_MG_H
 
 #include "libitm_i.h"
 #include "bloomfilter.h"
@@ -32,7 +32,7 @@
 #define SW_RESTARTS 5
 
 namespace GTM HIDDEN {
-struct invalbrid_tx_data: public gtm_transaction_data
+struct parallbrid_tx_data: public gtm_transaction_data
   {
     // Bloomfilter for read and write set.
     atomic<bloomfilter*> readset;
@@ -40,7 +40,7 @@ struct invalbrid_tx_data: public gtm_transaction_data
     // The write_log stores the speculative writes.
     gtm_log *write_log;
     size_t log_size;
-    // this undolog is only used by irrevocabosw transactions.
+    // this undolog is only used by serialabosw transactions.
     gtm_undolog *undo_log;
     // The local commit sequence is used by specsws to detect whether an sglsw
     // transaction is or was executing since the specsw transaction started.
@@ -58,18 +58,18 @@ struct invalbrid_tx_data: public gtm_transaction_data
     static void *operator new(size_t);
     static void operator delete(void *);
 
-    invalbrid_tx_data();
-    ~invalbrid_tx_data();
+    parallbrid_tx_data();
+    ~parallbrid_tx_data();
   };
 
 // This is the tx data for hardware transactions, BFHW by name.
 // This is nesseccary because hardwaretransactions can't use atomics.
-struct invalbrid_hw_tx_data: public gtm_transaction_data
+struct parallbrid_hw_tx_data: public gtm_transaction_data
   {
     hw_bloomfilter* writeset;
 
-    invalbrid_hw_tx_data();
-    ~invalbrid_hw_tx_data();
+    parallbrid_hw_tx_data();
+    ~parallbrid_hw_tx_data();
 
     static void *operator new(size_t);
     static void operator delete(void *);
@@ -79,7 +79,7 @@ struct invalbrid_hw_tx_data: public gtm_transaction_data
     gtm_transaction_data* save();
   };
 
-  struct invalbrid_mg : public method_group
+  struct parallbrid_mg : public method_group
   {
     // The commit lock and the software transaction counter are static, to be
     // easy accesable for hardware transactions.
@@ -117,11 +117,11 @@ struct invalbrid_hw_tx_data: public gtm_transaction_data
 
     static void invalidate();
 
-    invalbrid_mg();
+    parallbrid_mg();
 
-  }; // invalbrid_mg
+  }; // parallbrid_mg
 
 } // GTM namespace
 
-#endif // INVALBRIDMG_H
+#endif // PARALLBRIDMG_H
 

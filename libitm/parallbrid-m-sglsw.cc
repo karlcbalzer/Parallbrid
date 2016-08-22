@@ -23,7 +23,7 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include "libitm_i.h"
-#include "invalbrid-mg.h"
+#include "parallbrid-mg.h"
 
 using namespace GTM;
 
@@ -32,7 +32,7 @@ namespace {
 class sglsw_dispatch : public abi_dispatch
 {
 public:
-  sglsw_dispatch(): abi_dispatch(method_group_invalbrid(), true, false) { }
+  sglsw_dispatch(): abi_dispatch(method_group_parallbrid(), true, false) { }
 
 protected:
   template <typename V> static V load(const V* addr, ls_modifier mod)
@@ -67,17 +67,17 @@ public:
   begin()
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
+    parallbrid_mg* mg = (parallbrid_mg*)m_method_group;
     // Acquire the commit lock.
-    pthread_mutex_lock(&invalbrid_mg::commit_lock);
-    invalbrid_mg::commit_lock_available = false;
+    pthread_mutex_lock(&parallbrid_mg::commit_lock);
+    parallbrid_mg::commit_lock_available = false;
     // Increment the commit sequenze to an odd value, to stop software
     // transactions that are active and new ones from starting.
     mg->commit_sequence.fetch_add(1,std::memory_order_release);
     tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE;
     tx->shared_state.store(gtm_thread::STATE_SERIAL
               |gtm_thread::STATE_IRREVOCABLE, std::memory_order_release);
-    #ifdef DEBUG_INVALBRID
+    #ifdef DEBUG_PARALLBRID
       tx->tx_types_started[SGL_SW]++;
     #endif
   }
@@ -86,13 +86,13 @@ public:
   trycommit()
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
+    parallbrid_mg* mg = (parallbrid_mg*)m_method_group;
     mg->commit_sequence.fetch_add(std::memory_order_release);
-    invalbrid_mg::commit_lock_available = true;
-    pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+    parallbrid_mg::commit_lock_available = true;
+    pthread_mutex_unlock(&parallbrid_mg::commit_lock);
     tx->state = 0;
     tx->shared_state.store(0, std::memory_order_release);
-    #ifdef DEBUG_INVALBRID
+    #ifdef DEBUG_PARALLBRID
       tx->tx_types_commited[SGL_SW]++;
     #endif
     return NO_RESTART;
@@ -101,7 +101,7 @@ public:
   void
   rollback(gtm_transaction_cp *cp)
   {
-    GTM_fatal("Invalbrid-SglSW cannot rollback, because it's serial irrevocable");
+    GTM_fatal("parallbrid-SglSW cannot rollback, because it's serial irrevocable");
   }
 
 }; // sglsw_dispatch
@@ -111,7 +111,7 @@ static const sglsw_dispatch o_sglsw_dispatch;
 } // anon
 
 GTM::abi_dispatch *
-GTM::dispatch_invalbrid_sglsw()
+GTM::dispatch_parallbrid_sglsw()
 {
   return const_cast<sglsw_dispatch *>(&o_sglsw_dispatch);
 }

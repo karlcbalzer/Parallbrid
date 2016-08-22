@@ -23,16 +23,16 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include "libitm_i.h"
-#include "invalbrid-mg.h"
+#include "parallbrid-mg.h"
 
 using namespace GTM;
 
 namespace {
 
-class irrevocabosw_dispatch : public abi_dispatch
+class serialabosw_dispatch : public abi_dispatch
 {
 public:
-  irrevocabosw_dispatch(): abi_dispatch(method_group_invalbrid(), false, false) { }
+  serialabosw_dispatch(): abi_dispatch(method_group_parallbrid(), false, false) { }
 
 protected:
   template <typename V> static V load(const V* addr, ls_modifier mod)
@@ -44,7 +44,7 @@ protected:
   {
     gtm_thread *tx = gtm_thr();
     // We can load tx_data in relaxed mode, because the reference never changes.
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address((void*) addr, sizeof(V));
@@ -60,7 +60,7 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     // We can load tx_data in relaxed mode, because the reference never changes.
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
@@ -77,7 +77,7 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     // We can load tx_data in relaxed mode, because the reference never changes.
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
@@ -94,29 +94,29 @@ public:
   begin()
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
+    parallbrid_mg* mg = (parallbrid_mg*)m_method_group;
     if (unlikely(tx->tx_data.load(std::memory_order_relaxed) == NULL))
     {
-      invalbrid_tx_data *spec_data = new invalbrid_tx_data();
+      parallbrid_tx_data *spec_data = new parallbrid_tx_data();
       spec_data->undo_log = new gtm_undolog();
       tx->tx_data.store((gtm_transaction_data*)spec_data, std::memory_order_release);
     }
     else
     {
-      invalbrid_tx_data *data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+      parallbrid_tx_data *data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
       if (data->undo_log == NULL)
       {
         data->undo_log = new gtm_undolog();
       }
     }
     // Acquire the commit lock.
-    pthread_mutex_lock(&invalbrid_mg::commit_lock);
-    invalbrid_mg::commit_lock_available = false;
+    pthread_mutex_lock(&parallbrid_mg::commit_lock);
+    parallbrid_mg::commit_lock_available = false;
     mg->committing_tx.store(tx, std::memory_order_release);
     tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_SOFTWARE;
     tx->shared_state.store( gtm_thread::STATE_SERIAL
               | gtm_thread::STATE_SOFTWARE, std::memory_order_release);
-    #ifdef DEBUG_INVALBRID
+    #ifdef DEBUG_PARALLBRID
       tx->tx_types_started[IRREVOCABO_SW]++;
     #endif
   }
@@ -125,16 +125,16 @@ public:
   trycommit()
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
-    invalbrid_tx_data * tx_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
-    invalbrid_mg::invalidate();
+    parallbrid_mg* mg = (parallbrid_mg*)m_method_group;
+    parallbrid_tx_data * tx_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_mg::invalidate();
     mg->committing_tx.store(0, std::memory_order_release);
-    invalbrid_mg::commit_lock_available = true;
-    pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+    parallbrid_mg::commit_lock_available = true;
+    pthread_mutex_unlock(&parallbrid_mg::commit_lock);
     tx->state = 0;
     tx->shared_state.store(0, std::memory_order_release);
     tx_data->clear();
-    #ifdef DEBUG_INVALBRID
+    #ifdef DEBUG_PARALLBRID
       tx->tx_types_commited[IRREVOCABO_SW]++;
     #endif
     return NO_RESTART;
@@ -151,7 +151,7 @@ public:
       // this nested transaction.
       data->load(cp->tx_data);
       // Rollback the undolog.
-      invalbrid_tx_data *inval_data = (invalbrid_tx_data*) data;
+      parallbrid_tx_data *inval_data = (parallbrid_tx_data*) data;
       inval_data->undo_log->rollback(tx, inval_data->log_size);
     }
     else
@@ -159,24 +159,24 @@ public:
       // This rollback belongs to an outer abort of an serial mode software transaction, so we have
       // to restore the previous memory state by unrolling the undolog and publish the previous data. After that we release the commit lock.
       gtm_thread *tx = gtm_thr();
-      invalbrid_tx_data *data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+      parallbrid_tx_data *data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
       data->undo_log->rollback(tx, 0);
-      invalbrid_mg::commit_lock_available = true;
-      pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+      parallbrid_mg::commit_lock_available = true;
+      pthread_mutex_unlock(&parallbrid_mg::commit_lock);
       tx->shared_state.store(0, std::memory_order_release);
       tx->tx_data.load(std::memory_order_relaxed)->clear();
       tx->state = 0;
     }
   }
 
-}; // irrevocabosw_dispatch
+}; // serialabosw_dispatch
 
-static const irrevocabosw_dispatch o_irrevocabosw_dispatch;
+static const serialabosw_dispatch o_serialabosw_dispatch;
 
 } // anon
 
 GTM::abi_dispatch *
-GTM::dispatch_invalbrid_irrevocabosw()
+GTM::dispatch_parallbrid_serialabosw()
 {
-  return const_cast<irrevocabosw_dispatch *>(&o_irrevocabosw_dispatch);
+  return const_cast<serialabosw_dispatch *>(&o_serialabosw_dispatch);
 }

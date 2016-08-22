@@ -24,7 +24,7 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include "libitm_i.h"
-#include "invalbrid-mg.h"
+#include "parallbrid-mg.h"
 
 using namespace GTM;
 
@@ -33,7 +33,7 @@ namespace {
 class bfhw_dispatch : public abi_dispatch
 {
 public:
-  bfhw_dispatch(): abi_dispatch(method_group_invalbrid(), false, true) { }
+  bfhw_dispatch(): abi_dispatch(method_group_parallbrid(), false, true) { }
 
 protected:
   template <typename V> static V load(const V* addr, ls_modifier mod)
@@ -44,7 +44,7 @@ protected:
       ls_modifier mod)
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_hw_tx_data * tx_data = (invalbrid_hw_tx_data*) tx->hw_tx_data;
+    parallbrid_hw_tx_data * tx_data = (parallbrid_hw_tx_data*) tx->hw_tx_data;
     tx_data->writeset->add_address((void*) addr, sizeof(V));
     *addr = value;
   }
@@ -54,7 +54,7 @@ public:
       bool may_overlap, ls_modifier dst_mod, ls_modifier src_mod)
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_hw_tx_data * tx_data = (invalbrid_hw_tx_data*) tx->hw_tx_data;
+    parallbrid_hw_tx_data * tx_data = (parallbrid_hw_tx_data*) tx->hw_tx_data;
     tx_data->writeset->add_address(dst, size);
     if (!may_overlap)
       ::memcpy(dst, src, size);
@@ -65,7 +65,7 @@ public:
   static void memset_static(void *dst, int c, size_t size, ls_modifier mod)
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_hw_tx_data * tx_data = (invalbrid_hw_tx_data*) tx->hw_tx_data;
+    parallbrid_hw_tx_data * tx_data = (parallbrid_hw_tx_data*) tx->hw_tx_data;
     tx_data->writeset->add_address(dst, size);
     ::memset(dst, c, size);
   }
@@ -80,14 +80,14 @@ public:
     tx->state = gtm_thread::STATE_HARDWARE;
     if (tx->hw_tx_data == 0)
     {
-      tx->hw_tx_data = (gtm_transaction_data*) new invalbrid_hw_tx_data();
+      tx->hw_tx_data = (gtm_transaction_data*) new parallbrid_hw_tx_data();
     }
   }
 
   gtm_restart_reason
   trycommit()
   {
-    invalbrid_mg::hw_post_commit++;
+    parallbrid_mg::hw_post_commit++;
     htm_commit();
 
     // The htm execution has ended successfully. Now the post commit phase starts.
@@ -95,7 +95,7 @@ public:
     gtm_thread *tx = gtm_thr();
     tx->thread_lock.reader_lock();
     gtm_thread **prev = &(tx->list_of_threads);
-    invalbrid_hw_tx_data * tx_data = (invalbrid_hw_tx_data*) tx->hw_tx_data;
+    parallbrid_hw_tx_data * tx_data = (parallbrid_hw_tx_data*) tx->hw_tx_data;
     hw_bloomfilter *bf = tx_data->writeset;
     for (; *prev; prev = &(*prev)->next_thread)
     {
@@ -107,7 +107,7 @@ public:
       // invalidation is only done when holding the commit lock.
       if((*prev)->shared_state.load(std::memory_order_acquire) & gtm_thread::STATE_SOFTWARE)
       {
-        invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load(std::memory_order_acquire);
+        parallbrid_tx_data *prev_data = (parallbrid_tx_data*) (*prev)->tx_data.load(std::memory_order_acquire);
         assert(prev_data != NULL);
 //        bloomfilter *w_bf = prev_data->writeset.load(std::memory_order_acquire);
         bloomfilter *r_bf = prev_data->readset.load(std::memory_order_acquire);
@@ -127,7 +127,7 @@ public:
     while (!finished) {
       uint32_t htm_return = htm_begin();
       if (htm_begin_success(htm_return)) {
-        invalbrid_mg::hw_post_commit--;
+        parallbrid_mg::hw_post_commit--;
         htm_commit();
         finished = true;
       }
@@ -136,7 +136,7 @@ public:
     tx->nesting = 0;
     tx->state = 0;
 
-    #ifdef DEBUG_INVALBRID
+    #ifdef DEBUG_PARALLBRID
       tx->tx_types_commited[BFHW]++;
     #endif
     return NO_RESTART;
@@ -155,7 +155,7 @@ static const bfhw_dispatch o_bfhw_dispatch;
 } // anon
 
 GTM::abi_dispatch *
-GTM::dispatch_invalbrid_bfhw()
+GTM::dispatch_parallbrid_bfhw()
 {
   return const_cast<bfhw_dispatch *>(&o_bfhw_dispatch);
 }

@@ -23,7 +23,7 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include "libitm_i.h"
-#include "invalbrid-mg.h"
+#include "parallbrid-mg.h"
 #include <stdio.h>
 
 using namespace GTM;
@@ -33,16 +33,16 @@ namespace {
 class specsw_dispatch : public abi_dispatch
 {
 public:
-  specsw_dispatch(): abi_dispatch(method_group_invalbrid(), false, true) { }
+  specsw_dispatch(): abi_dispatch(method_group_parallbrid(), false, true) { }
 
 protected:
   static gtm_restart_reason
   validate()
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_mg *mg = (invalbrid_mg*)method_group::method_gr;
+    parallbrid_mg *mg = (parallbrid_mg*)method_group::method_gr;
     // We can load tx_data in relaxed mode, because the reference never changes.
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // If commit_sequenze has changed since this transaction started, then a
     // sglsw transaction is or was running. So this transaction has to restart,
     // because there is no conflict detection with sglsw transactions.
@@ -62,7 +62,7 @@ protected:
       // transaction pointed to by committing_tx has moved on and has no
       // longer the software state, then there is no problem either, since it
       // still carrys an read and writeset, even if its not used.
-      invalbrid_tx_data* c_tx_data = (invalbrid_tx_data*)c_tx->tx_data.load(std::memory_order_acquire);
+      parallbrid_tx_data* c_tx_data = (parallbrid_tx_data*)c_tx->tx_data.load(std::memory_order_acquire);
       // Load the writeset of the committing transaction.
       bloomfilter *c_bf = c_tx_data->writeset.load(std::memory_order_acquire);
       // Load this threads read- and writeset.
@@ -87,7 +87,7 @@ protected:
     while (!finished) {
       uint32_t htm_return = htm_begin();
       if (htm_begin_success(htm_return)) {
-        hw_pcc = invalbrid_mg::hw_post_commit;
+        hw_pcc = parallbrid_mg::hw_post_commit;
         htm_commit();
         if (hw_pcc == 0){
           finished = true;
@@ -108,7 +108,7 @@ protected:
   pre_write(void *dst, size_t size)
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // If this transaction has been invalidated, it has to be restarted.
     gtm_restart_reason rr = spec_data->invalid_reason.load(memory_order_acquire);
     if (rr != NO_RESTART)
@@ -123,7 +123,7 @@ protected:
   template <typename V> static V load(const V* addr, ls_modifier mod)
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addr will be added to the readset.
     bloomfilter *bf = spec_data->readset.load(std::memory_order_relaxed);
     bf->add_address((void*) addr, sizeof(V));
@@ -145,7 +145,7 @@ protected:
   {
     pre_write(addr, sizeof(V));
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // Adding the addr, value pair to the writelog.
     spec_data->write_log->log((void*)addr,(void*)&value, sizeof(V));
     spec_data->log_size = spec_data->write_log->size();
@@ -157,7 +157,7 @@ public:
   {
     // read phase
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The src addresses will be added to the readset.
     bloomfilter *bf = spec_data->readset.load(std::memory_order_relaxed);
     bf->add_address(src, size);
@@ -184,7 +184,7 @@ public:
   {
     pre_write(dst, size);
     gtm_thread *tx = gtm_thr();
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // Adding the addr, value pair to the writelog.
     spec_data->write_log->log_memset(dst,c, size);
     spec_data->log_size = spec_data->write_log->size();
@@ -196,9 +196,9 @@ public:
   void
   begin()
   {
-    invalbrid_mg::sw_cnt.fetch_add(1, std::memory_order_release);
+    parallbrid_mg::sw_cnt.fetch_add(1, std::memory_order_release);
     gtm_thread *tx = gtm_thr();
-    invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
+    parallbrid_mg* mg = (parallbrid_mg*)m_method_group;
     uint32_t local_cs = mg->commit_sequence.load(std::memory_order_acquire);
     while (local_cs & 1)
     {
@@ -208,13 +208,13 @@ public:
     tx->state |= gtm_thread::STATE_SOFTWARE;
     if (unlikely(tx->tx_data.load(std::memory_order_relaxed) == NULL))
     {
-        invalbrid_tx_data *spec_data = new invalbrid_tx_data();
+        parallbrid_tx_data *spec_data = new parallbrid_tx_data();
         spec_data->write_log = new gtm_log();
         tx->tx_data.store((gtm_transaction_data*)spec_data, std::memory_order_release);
     }
     else
     {
-      invalbrid_tx_data *data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+      parallbrid_tx_data *data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
       if (data->write_log == NULL)
       {
         data->write_log = new gtm_log();
@@ -226,11 +226,11 @@ public:
     // atomically and the memory order garantees that tx_data is published
     // before shared_state is.
     tx->shared_state.fetch_or(gtm_thread::STATE_SOFTWARE, std::memory_order_release);
-    invalbrid_tx_data* tx_data = (invalbrid_tx_data*) tx->tx_data.load();
+    parallbrid_tx_data* tx_data = (parallbrid_tx_data*) tx->tx_data.load();
     // Save the commit_sequence so we can restart if a sglsw transaction was
     // starteted.
     tx_data->local_commit_sequence = local_cs;
-    #ifdef DEBUG_INVALBRID
+    #ifdef DEBUG_PARALLBRID
       tx->tx_types_started[SPEC_SW]++;
     #endif
   }
@@ -239,8 +239,8 @@ public:
   trycommit()
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
-    invalbrid_tx_data * spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_mg* mg = (parallbrid_mg*)m_method_group;
+    parallbrid_tx_data * spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // If this is a read only transaction, no commit lock or validation is required.
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     if (bf->empty() == true)
@@ -249,12 +249,12 @@ public:
         // the commit lock, release it.
         if (tx->state & gtm_thread::STATE_SERIAL)
         {
-          invalbrid_mg::commit_lock_available = true;
-          pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+          parallbrid_mg::commit_lock_available = true;
+          pthread_mutex_unlock(&parallbrid_mg::commit_lock);
         }
         // Clear the tx data.
         clear();
-        invalbrid_mg::sw_cnt.fetch_sub(1,std::memory_order_release);
+        parallbrid_mg::sw_cnt.fetch_sub(1,std::memory_order_release);
         return NO_RESTART;
     }
     // If this transaction went serial and has already acquired the commit lock,
@@ -262,8 +262,8 @@ public:
     // should be that the commit lock must be acquired at this point.
     if (likely(!(tx->state & gtm_thread::STATE_SERIAL)))
     {
-      pthread_mutex_lock(&invalbrid_mg::commit_lock);
-      invalbrid_mg::commit_lock_available = false;
+      pthread_mutex_lock(&parallbrid_mg::commit_lock);
+      parallbrid_mg::commit_lock_available = false;
     }
     mg->committing_tx.store(tx, std::memory_order_release);
     gtm_restart_reason rr = validate();
@@ -271,22 +271,22 @@ public:
     if (rr != NO_RESTART)
     {
       mg->committing_tx.store(0, std::memory_order_release);
-      invalbrid_mg::commit_lock_available = true;
-      pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+      parallbrid_mg::commit_lock_available = true;
+      pthread_mutex_unlock(&parallbrid_mg::commit_lock);
       return rr;
     }
-    invalbrid_mg::sw_cnt.fetch_sub(1,std::memory_order_release);
+    parallbrid_mg::sw_cnt.fetch_sub(1,std::memory_order_release);
     // Commit all speculative writes to memory.
     spec_data->write_log->commit(tx);
     // Invalidate other conflicting specsw transactions.
-    invalbrid_mg::invalidate();
+    parallbrid_mg::invalidate();
     // Restore committing_tx_data.
     mg->committing_tx.store(0, std::memory_order_release);
-    invalbrid_mg::commit_lock_available = true;
-    pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+    parallbrid_mg::commit_lock_available = true;
+    pthread_mutex_unlock(&parallbrid_mg::commit_lock);
     // Clear the tx data.
     clear();
-    #ifdef DEBUG_INVALBRID
+    #ifdef DEBUG_PARALLBRID
       tx->tx_types_commited[SPEC_SW]++;
     #endif
     return NO_RESTART;
@@ -318,10 +318,10 @@ public:
         // to release the commit lock.
         if (tx->state & gtm_thread::STATE_SERIAL)
         {
-        invalbrid_mg::commit_lock_available = true;
-          pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+        parallbrid_mg::commit_lock_available = true;
+          pthread_mutex_unlock(&parallbrid_mg::commit_lock);
         }
-        invalbrid_mg::sw_cnt.fetch_sub(1, std::memory_order_release);
+        parallbrid_mg::sw_cnt.fetch_sub(1, std::memory_order_release);
         clear();
     }
   }
@@ -333,7 +333,7 @@ static const specsw_dispatch o_specsw_dispatch;
 } // anon
 
 GTM::abi_dispatch *
-GTM::dispatch_invalbrid_specsw()
+GTM::dispatch_parallbrid_specsw()
 {
   return const_cast<specsw_dispatch *>(&o_specsw_dispatch);
 }

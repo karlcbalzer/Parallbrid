@@ -23,21 +23,21 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include "libitm_i.h"
-#include "invalbrid-mg.h"
+#include "parallbrid-mg.h"
 #include <stdio.h>
 
 
 using namespace GTM;
 
-// Invalbrids static initialization.
-pthread_mutex_t invalbrid_mg::commit_lock
+// parallbrids static initialization.
+pthread_mutex_t parallbrid_mg::commit_lock
     __attribute__((aligned(HW_CACHELINE_SIZE)));
-atomic<uint32_t> invalbrid_mg::sw_cnt;
-rw_atomic_lock invalbrid_mg::hw_post_commit_lock;
-uint32_t invalbrid_mg::hw_post_commit;
-bool invalbrid_mg::commit_lock_available;
+atomic<uint32_t> parallbrid_mg::sw_cnt;
+rw_atomic_lock parallbrid_mg::hw_post_commit_lock;
+uint32_t parallbrid_mg::hw_post_commit;
+bool parallbrid_mg::commit_lock_available;
 
-invalbrid_mg::invalbrid_mg()
+parallbrid_mg::parallbrid_mg()
 {
   pthread_mutex_init(&commit_lock, NULL);
   sw_cnt.store(0);
@@ -50,7 +50,7 @@ invalbrid_mg::invalbrid_mg()
 // Decides as which type of transaction this transaction should run, starts
 // the transaction and returns the appropriate _ITM_actions code.
 uint32_t
-invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
+parallbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 {
   gtm_thread *tx = gtm_thr();
 
@@ -105,7 +105,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
         for ( ;restarts < HW_RESTARTS; ++restarts)
         {
           // Get the number of running software transactions.
-          uint32_t tmp_sw_cnt = invalbrid_mg::sw_cnt.load(memory_order_acquire);
+          uint32_t tmp_sw_cnt = parallbrid_mg::sw_cnt.load(memory_order_acquire);
           // If there is no thread object, but we need to use BFHW transactions, create one.
           if (tx == NULL && tmp_sw_cnt != 0)
           {
@@ -116,13 +116,13 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
           if (htm_begin_success(htm_ret))
           {
             // Htm transaction started successfully.
-            if (invalbrid_mg::commit_lock_available)
+            if (parallbrid_mg::commit_lock_available)
             {
               if (tmp_sw_cnt == 0 && prop & pr_uninstrumentedCode)
               {
                 // No software transactions should be running, so start a LiteHW transaction.
                 // We have to subscribe to the software transaction count so read it again.
-                if (invalbrid_mg::sw_cnt == 0)
+                if (parallbrid_mg::sw_cnt == 0)
                   return a_runUninstrumentedCode;
                 else
                   htm_abort();
@@ -131,7 +131,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
               {
                 // There are software transactions present, so use BFHW transactions.
                 tx->nesting = 1;
-                set_abi_disp(dispatch_invalbrid_bfhw());
+                set_abi_disp(dispatch_parallbrid_bfhw());
                 abi_disp()->begin();
                 return a_runInstrumentedCode;
               }
@@ -183,7 +183,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
           {
             // Set the dispatch to sglsw, because this is the only
             // irrevocable transaction type, that can run uninstrumented.
-            set_abi_disp(dispatch_invalbrid_sglsw());
+            set_abi_disp(dispatch_parallbrid_sglsw());
             // Let the dispatch setup the transaction.
             abi_disp()->begin();
             // Since we are now running uninstrumented we must clear the
@@ -220,7 +220,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
   {
     uint32_t software_count = sw_cnt.load(memory_order_acquire);
     if (prop & pr_hasNoAbort)
-    // If no abort is present, any of the Invalbrid transactions can be choosen.
+    // If no abort is present, any of the parallbrid transactions can be choosen.
     {
       if (prop & pr_doesGoIrrevocable)
       // Only irrevocsw or sglsw can be used at this point.
@@ -229,17 +229,17 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
         && (software_count != 0))
           // Use irrevocsw if software transactions(specsws) are present and
           // there is an instrumented codepath or this transaction is read only.
-        set_abi_disp(dispatch_invalbrid_irrevocsw());
+        set_abi_disp(dispatch_parallbrid_irrevocsw());
           else
           // Use sglsw instead.
-        set_abi_disp(dispatch_invalbrid_sglsw());
+        set_abi_disp(dispatch_parallbrid_sglsw());
       }
       else
       {
         if (prop & pr_instrumentedCode && (software_count != 0 || commit_sequence.load(memory_order_acquire) & 1))
-          set_abi_disp(dispatch_invalbrid_specsw());
+          set_abi_disp(dispatch_parallbrid_specsw());
         else
-          set_abi_disp(dispatch_invalbrid_sglsw());
+          set_abi_disp(dispatch_parallbrid_sglsw());
       }
     }
     else
@@ -247,9 +247,9 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
       assert(prop & pr_instrumentedCode);
       // if the commit lock is taken or there are other software transactions running, then use specsw.
       if (software_count != 0 || committing_tx.load(std::memory_order_acquire) != NULL)
-        set_abi_disp(dispatch_invalbrid_specsw());
+        set_abi_disp(dispatch_parallbrid_specsw());
       else
-        set_abi_disp(dispatch_invalbrid_irrevocabosw());
+        set_abi_disp(dispatch_parallbrid_serialabosw());
     }
   }
 
@@ -293,7 +293,7 @@ invalbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 }
 
 void
-invalbrid_mg::abort(_ITM_abortReason reason)
+parallbrid_mg::abort(_ITM_abortReason reason)
 {
   gtm_thread *tx = gtm_thr();
 
@@ -328,13 +328,13 @@ invalbrid_mg::abort(_ITM_abortReason reason)
 }
 
 void
-invalbrid_mg::commit()
+parallbrid_mg::commit()
 {
   commit_EH(0);
 }
 
 void
-invalbrid_mg::commit_EH(void *exc_ptr)
+parallbrid_mg::commit_EH(void *exc_ptr)
 {
   gtm_thread *tx = gtm_thr();
 
@@ -346,7 +346,7 @@ invalbrid_mg::commit_EH(void *exc_ptr)
     // transaction. So if something else would be running this transaction
     // would abort.
     htm_commit();
-    #ifdef DEBUG_INVALBRID
+    #ifdef DEBUG_PARALLBRID
     gtm_thread::litehw_count++;
     #endif
   }
@@ -404,7 +404,7 @@ invalbrid_mg::commit_EH(void *exc_ptr)
 }
 
 _ITM_howExecuting
-invalbrid_mg::in_transaction()
+parallbrid_mg::in_transaction()
 {
   gtm_thread *tx = gtm_thr();
   if (tx == NULL || tx->state == 0)
@@ -415,14 +415,14 @@ invalbrid_mg::in_transaction()
 }
 
 _ITM_transactionId_t
-invalbrid_mg::get_transaction_id()
+parallbrid_mg::get_transaction_id()
 {
   gtm_thread *tx = gtm_thr();
   return (tx == NULL || tx->state == 0) ? _ITM_noTransactionId : tx->id;
 }
 
 void
-invalbrid_mg::change_transaction_mode(_ITM_transactionState state)
+parallbrid_mg::change_transaction_mode(_ITM_transactionState state)
 {
   assert (state == modeSerialIrrevocable);
   if (!(gtm_thr()->state & gtm_thread::STATE_IRREVOCABLE))
@@ -430,7 +430,7 @@ invalbrid_mg::change_transaction_mode(_ITM_transactionState state)
 }
 
 void
-invalbrid_mg::acquire_serial_access()
+parallbrid_mg::acquire_serial_access()
 {
   gtm_thread *tx = gtm_thr();
   if (!(tx && (tx->state & gtm_thread::STATE_SERIAL)))
@@ -440,7 +440,7 @@ invalbrid_mg::acquire_serial_access()
 }
 
 void
-invalbrid_mg::release_serial_access()
+parallbrid_mg::release_serial_access()
 {
   gtm_thread *tx = gtm_thr();
   if (!(tx && (tx->state & gtm_thread::STATE_SERIAL)))
@@ -450,7 +450,7 @@ invalbrid_mg::release_serial_access()
 }
 
 void
-invalbrid_mg::restart(gtm_restart_reason rr)
+parallbrid_mg::restart(gtm_restart_reason rr)
 {
   gtm_thread* tx = gtm_thr();
   assert(rr != NO_RESTART);
@@ -465,7 +465,7 @@ invalbrid_mg::restart(gtm_restart_reason rr)
   if (rr == RESTART_UNINSTRUMENTED_CODEPATH || rr == RESTART_SERIAL_IRR)
   {
     assert(tx->prop & pr_hasNoAbort);
-    set_abi_disp(dispatch_invalbrid_sglsw());
+    set_abi_disp(dispatch_parallbrid_sglsw());
     ret = a_runUninstrumentedCode;
   }
   else
@@ -484,20 +484,20 @@ invalbrid_mg::restart(gtm_restart_reason rr)
       {
         if (sw_cnt.load(memory_order_acquire) == 0)
         {
-          set_abi_disp(dispatch_invalbrid_sglsw());
+          set_abi_disp(dispatch_parallbrid_sglsw());
           ret = a_runUninstrumentedCode;
         }
         else
         {
-          set_abi_disp(dispatch_invalbrid_irrevocsw());
+          set_abi_disp(dispatch_parallbrid_irrevocsw());
           ret = a_runInstrumentedCode;
         }
       }
       // If the transaction may abort, we have to use specsw in serial mode.
       else
       {
-        // Us IrrevocAboSW, because we still need an abortable transaction.
-        set_abi_disp(dispatch_invalbrid_irrevocabosw());
+        // Us serialabosw, because we still need an abortable transaction.
+        set_abi_disp(dispatch_parallbrid_serialabosw());
         ret = a_runInstrumentedCode;
       }
     }
@@ -507,10 +507,10 @@ invalbrid_mg::restart(gtm_restart_reason rr)
 }
 
 void
-invalbrid_mg::invalidate()
+parallbrid_mg::invalidate()
 {
   gtm_thread *tx = gtm_thr();
-  invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+  parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
   tx->thread_lock.reader_lock();
   gtm_thread **prev = &(tx->list_of_threads);
   bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
@@ -524,7 +524,7 @@ invalbrid_mg::invalidate()
     // invalidation is only done when holding the commit lock.
     if((*prev)->shared_state.load(std::memory_order_acquire) & gtm_thread::STATE_SOFTWARE)
     {
-      invalbrid_tx_data *prev_data = (invalbrid_tx_data*) (*prev)->tx_data.load(std::memory_order_acquire);
+      parallbrid_tx_data *prev_data = (parallbrid_tx_data*) (*prev)->tx_data.load(std::memory_order_acquire);
       assert(prev_data != NULL);
 //      bloomfilter *w_bf = prev_data->writeset.load(std::memory_order_acquire);
       bloomfilter *r_bf = prev_data->readset.load(std::memory_order_acquire);
@@ -541,10 +541,10 @@ invalbrid_mg::invalidate()
   tx->thread_lock.reader_unlock();
 }
 
-// Invalbrid tx data implementation.
+// parallbrid tx data implementation.
 
-// Constructor and destructor for invalbrid transactional data.
-invalbrid_tx_data::invalbrid_tx_data()
+// Constructor and destructor for parallbrid transactional data.
+parallbrid_tx_data::parallbrid_tx_data()
 {
   log_size = 0;
   local_commit_sequence = 0;
@@ -555,7 +555,7 @@ invalbrid_tx_data::invalbrid_tx_data()
   undo_log = NULL;
 }
 
-invalbrid_tx_data::~invalbrid_tx_data()
+parallbrid_tx_data::~parallbrid_tx_data()
 {
   delete writeset.load(std::memory_order_relaxed);
   delete readset.load(std::memory_order_relaxed);
@@ -567,26 +567,26 @@ invalbrid_tx_data::~invalbrid_tx_data()
 
 // Allocate a transaction data structure.
 void *
-invalbrid_tx_data::operator new (size_t s)
+parallbrid_tx_data::operator new (size_t s)
 {
   void *tx_data;
 
-  assert(s == sizeof(invalbrid_tx_data));
+  assert(s == sizeof(parallbrid_tx_data));
 
-  tx_data = xmalloc (sizeof (invalbrid_tx_data), true);
+  tx_data = xmalloc (sizeof (parallbrid_tx_data), true);
 
   return tx_data;
 }
 
 // Free the given transaction data.
 void
-invalbrid_tx_data::operator delete(void *tx_data)
+parallbrid_tx_data::operator delete(void *tx_data)
 {
   free(tx_data);
 }
 
 void
-invalbrid_tx_data::clear()
+parallbrid_tx_data::clear()
 {
   log_size = 0;
   if (write_log != NULL)
@@ -602,9 +602,9 @@ invalbrid_tx_data::clear()
 }
 
 gtm_transaction_data*
-invalbrid_tx_data::save()
+parallbrid_tx_data::save()
 {
-  invalbrid_tx_data *ret = new invalbrid_tx_data();
+  parallbrid_tx_data *ret = new parallbrid_tx_data();
   // Get the pointers to the bloomfilters of this tx data and the checkpoint's
   // tx data.
   bloomfilter *ws = writeset.load(std::memory_order_relaxed);
@@ -623,9 +623,9 @@ invalbrid_tx_data::save()
 }
 
 void
-invalbrid_tx_data::load(gtm_transaction_data* tx_data)
+parallbrid_tx_data::load(gtm_transaction_data* tx_data)
 {
-  invalbrid_tx_data *data = (invalbrid_tx_data*) tx_data;
+  parallbrid_tx_data *data = (parallbrid_tx_data*) tx_data;
   bloomfilter *ws = writeset.load(std::memory_order_relaxed);
   bloomfilter *rs = readset.load(std::memory_order_relaxed);
   bloomfilter *others_ws = data->writeset.load(std::memory_order_relaxed);
@@ -642,65 +642,65 @@ invalbrid_tx_data::load(gtm_transaction_data* tx_data)
   delete data;
 }
 
-// Invalbrid hardware tx data implementation
+// parallbrid hardware tx data implementation
 
 // Allocate a transaction data structure.
 void *
-invalbrid_hw_tx_data::operator new (size_t s)
+parallbrid_hw_tx_data::operator new (size_t s)
 {
   void *tx_data;
 
-  assert(s == sizeof(invalbrid_hw_tx_data));
+  assert(s == sizeof(parallbrid_hw_tx_data));
 
-  tx_data = xmalloc (sizeof (invalbrid_hw_tx_data), true);
+  tx_data = xmalloc (sizeof (parallbrid_hw_tx_data), true);
 
   return tx_data;
 }
 
 // Free the given transaction data.
 void
-invalbrid_hw_tx_data::operator delete(void *tx_data)
+parallbrid_hw_tx_data::operator delete(void *tx_data)
 {
   free(tx_data);
 }
 
 // Constructor and Destructor for hardware tx data.
-invalbrid_hw_tx_data::invalbrid_hw_tx_data()
+parallbrid_hw_tx_data::parallbrid_hw_tx_data()
 {
   writeset = new hw_bloomfilter();
 }
 
-invalbrid_hw_tx_data::~invalbrid_hw_tx_data()
+parallbrid_hw_tx_data::~parallbrid_hw_tx_data()
 {
   delete writeset;
 }
 
 void
-invalbrid_hw_tx_data::clear()
+parallbrid_hw_tx_data::clear()
 {
   writeset->clear();
 }
 
 void
-invalbrid_hw_tx_data::load(gtm_transaction_data *)
+parallbrid_hw_tx_data::load(gtm_transaction_data *)
 {
   // Hardware transactions don't do checkpoints, so nothing todo here.
 }
 
-gtm_transaction_data *invalbrid_hw_tx_data::save()
+gtm_transaction_data *parallbrid_hw_tx_data::save()
 {
   // Hardware transactions don't do checkpoints, so nothing todo here.
   return NULL;
 }
 
 
-// Invalbrid method group as a singleton.
-static invalbrid_mg o_invalbrid_mg;
+// parallbrid method group as a singleton.
+static parallbrid_mg o_parallbrid_mg;
 
-// Getter for the invalbrid method group.
+// Getter for the parallbrid method group.
 method_group *
-GTM::method_group_invalbrid()
+GTM::method_group_parallbrid()
 {
-  return &o_invalbrid_mg;
+  return &o_parallbrid_mg;
 }
 

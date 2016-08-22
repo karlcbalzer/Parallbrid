@@ -29,7 +29,7 @@
 #ifndef LIBITM_I_H
 #define LIBITM_I_H 1
 
-//#define DEBUG_INVALBRID 1
+//#define DEBUG_PARALLBRID 1
 #include "libitm.h"
 #include "config.h"
 
@@ -73,8 +73,8 @@ enum gtm_restart_reason
   NO_RESTART = NUM_RESTARTS
 };
 
-#ifdef DEBUG_INVALBRID
-enum invalbrid_tx_types
+#ifdef DEBUG_PARALLBRID
+enum parallbrid_tx_types
 {
   SPEC_SW,
   SGL_SW,
@@ -324,7 +324,7 @@ struct gtm_thread
   uint32_t restart_reason[NUM_RESTARTS];
   uint32_t restart_total;
 
-  #ifdef DEBUG_INVALBRID
+  #ifdef DEBUG_PARALLBRID
     // A counter that records transaction types started.
     uint32_t tx_types_started[NUM_TYPES];
     // A counter that records transaction types commited.
@@ -424,14 +424,14 @@ extern void GTM_fatal (const char *fmt, ...)
 extern void set_default_method_group();
 
 // Methods that are used by the method groups.
-extern abi_dispatch *dispatch_invalbrid_sglsw();
-extern abi_dispatch *dispatch_invalbrid_specsw();
-extern abi_dispatch *dispatch_invalbrid_irrevocsw();
-extern abi_dispatch *dispatch_invalbrid_irrevocabosw();
-extern abi_dispatch *dispatch_invalbrid_bfhw();
+extern abi_dispatch *dispatch_parallbrid_sglsw();
+extern abi_dispatch *dispatch_parallbrid_specsw();
+extern abi_dispatch *dispatch_parallbrid_irrevocsw();
+extern abi_dispatch *dispatch_parallbrid_serialabosw();
+extern abi_dispatch *dispatch_parallbrid_bfhw();
 
 // The method groups that can be uses
-extern method_group *method_group_invalbrid();
+extern method_group *method_group_parallbrid();
 
 
 } // namespace GTM

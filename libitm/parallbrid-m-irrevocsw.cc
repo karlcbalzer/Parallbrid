@@ -23,7 +23,7 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include "libitm_i.h"
-#include "invalbrid-mg.h"
+#include "parallbrid-mg.h"
 #include <stdio.h>
 
 using namespace GTM;
@@ -33,7 +33,7 @@ namespace {
 class irrevocsw_dispatch : public abi_dispatch
 {
 public:
-  irrevocsw_dispatch(): abi_dispatch(method_group_invalbrid(), false, false) { }
+  irrevocsw_dispatch(): abi_dispatch(method_group_parallbrid(), false, false) { }
 
 protected:
   template <typename V> static V load(const V* addr, ls_modifier mod)
@@ -45,7 +45,7 @@ protected:
   {
     gtm_thread *tx = gtm_thr();
     // We can load tx_data in relaxed mode, because the reference never changes.
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address((void*) addr, sizeof(V));
@@ -58,7 +58,7 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     // We can load tx_data in relaxed mode, because the reference never changes.
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
@@ -72,7 +72,7 @@ public:
   {
     gtm_thread *tx = gtm_thr();
     // We can load tx_data in relaxed mode, because the reference never changes.
-    invalbrid_tx_data *spec_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_tx_data *spec_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
     // The addresses will be added to the writeset.
     bloomfilter *bf = spec_data->writeset.load(std::memory_order_relaxed);
     bf->add_address(dst, size);
@@ -86,31 +86,31 @@ public:
   begin()
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
+    parallbrid_mg* mg = (parallbrid_mg*)m_method_group;
     if (unlikely(tx->tx_data.load(std::memory_order_relaxed) == NULL))
     {
-      invalbrid_tx_data *spec_data = new invalbrid_tx_data();
+      parallbrid_tx_data *spec_data = new parallbrid_tx_data();
       spec_data->write_log = new gtm_log();
       tx->tx_data.store((gtm_transaction_data*)spec_data, std::memory_order_release);
     }
     else
     {
-      invalbrid_tx_data *data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+      parallbrid_tx_data *data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
       if (data->write_log == NULL)
       {
         data->write_log = new gtm_log();
       }
     }
     // Acquire the commit lock.
-    pthread_mutex_lock(&invalbrid_mg::commit_lock);
-    invalbrid_mg::commit_lock_available = false;
+    pthread_mutex_lock(&parallbrid_mg::commit_lock);
+    parallbrid_mg::commit_lock_available = false;
     mg->committing_tx.store(tx, std::memory_order_release);
     tx->state = gtm_thread::STATE_SERIAL | gtm_thread::STATE_IRREVOCABLE
           | gtm_thread::STATE_SOFTWARE;
     tx->shared_state.store( gtm_thread::STATE_SERIAL
               | gtm_thread::STATE_IRREVOCABLE
               | gtm_thread::STATE_SOFTWARE, std::memory_order_release);
-    #ifdef DEBUG_INVALBRID
+    #ifdef DEBUG_PARALLBRID
       tx->tx_types_started[IRREVOC_SW]++;
     #endif
   }
@@ -119,16 +119,16 @@ public:
   trycommit()
   {
     gtm_thread *tx = gtm_thr();
-    invalbrid_mg* mg = (invalbrid_mg*)m_method_group;
-    invalbrid_tx_data * tx_data = (invalbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
-    invalbrid_mg::invalidate();
+    parallbrid_mg* mg = (parallbrid_mg*)m_method_group;
+    parallbrid_tx_data * tx_data = (parallbrid_tx_data*) tx->tx_data.load(std::memory_order_relaxed);
+    parallbrid_mg::invalidate();
     mg->committing_tx.store(0, std::memory_order_release);
-    invalbrid_mg::commit_lock_available = true;
-    pthread_mutex_unlock(&invalbrid_mg::commit_lock);
+    parallbrid_mg::commit_lock_available = true;
+    pthread_mutex_unlock(&parallbrid_mg::commit_lock);
     tx->state = 0;
     tx->shared_state.store(0, std::memory_order_release);
     tx_data->clear();
-    #ifdef DEBUG_INVALBRID
+    #ifdef DEBUG_PARALLBRID
       tx->tx_types_commited[IRREVOC_SW]++;
     #endif
     return NO_RESTART;
@@ -137,7 +137,7 @@ public:
   void
   rollback(gtm_transaction_cp *cp)
   {
-    GTM_fatal("Invalbrid-IrrevocSW cannot rollback, because it's serial irrevocable");
+    GTM_fatal("parallbrid-IrrevocSW cannot rollback, because it's serial irrevocable");
   }
 
 }; // sglsw_dispatch
@@ -147,7 +147,7 @@ static const irrevocsw_dispatch o_irrevocsw_dispatch;
 } // anon
 
 GTM::abi_dispatch *
-GTM::dispatch_invalbrid_irrevocsw()
+GTM::dispatch_parallbrid_irrevocsw()
 {
   return const_cast<irrevocsw_dispatch *>(&o_irrevocsw_dispatch);
 }
