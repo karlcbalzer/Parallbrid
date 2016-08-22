@@ -180,8 +180,8 @@ GTM::gtm_thread::~gtm_thread()
   printf("SglSW started:%d  SglSW commited: %d\n", tx_types_started[SGL_SW], tx_types_commited[SGL_SW]);
   printf("IrrevocSW started:%d  IrrevocSW commited: %d\n", tx_types_started[IRREVOC_SW], tx_types_commited[IRREVOC_SW]);
   printf("SerialAboSW started:%d  IrrevocAboSW commited: %d\n", tx_types_started[SERIALABO_SW], tx_types_commited[SERIALABO_SW]);
-  printf("BFHW commited: %d\n", tx_types_commited[BFHW]);
-  printf("LITEHW commited: %d\n", litehw_count.load());
+  printf("BFHW tryied to start: %d BFHW commited: %d\n", tx_types_started[BFHW], tx_types_commited[BFHW]);
+  printf("LITEHW tryied to start: %d LITEHW commited: %d\n", tx_types_started[LITEHW], tx_types_commited[LITEHW]);
 #endif
 
   thread_lock.writer_unlock();
