@@ -25,9 +25,9 @@
 #include "libitm_i.h"
 #include <ctype.h>
 
-#ifdef DEBUG_INVALBRID
+#ifdef DEBUG_PARALLBRID
   #include <stdio.h>
-  #include "invalbrid-mg.h"
+  #include "parallbrid-mg.h"
 #endif
 
 
@@ -46,7 +46,7 @@ rw_atomic_lock GTM::gtm_thread::thread_lock;
 
 method_group *GTM::method_group::method_gr = 0;
 
-#ifdef DEBUG_INVALBRID
+#ifdef DEBUG_PARALLBRID
 atomic<uint32_t> gtm_thread::litehw_count;
 #endif
 
@@ -160,7 +160,7 @@ GTM::gtm_thread::~gtm_thread()
   if (data != NULL)
     delete data;
 
-#ifdef DEBUG_INVALBRID
+#ifdef DEBUG_PARALLBRID
   uint32_t restarts = 0;
   for (int i=0; i<NUM_RESTARTS; i++) restarts += restart_reason[i];
   printf("RESTART_REALLOCATE: %d\n", restart_reason[RESTART_REALLOCATE]);
@@ -179,7 +179,7 @@ GTM::gtm_thread::~gtm_thread()
   printf("SpecSW started:%d  SpecSW commited: %d\n", tx_types_started[SPEC_SW], tx_types_commited[SPEC_SW]);
   printf("SglSW started:%d  SglSW commited: %d\n", tx_types_started[SGL_SW], tx_types_commited[SGL_SW]);
   printf("IrrevocSW started:%d  IrrevocSW commited: %d\n", tx_types_started[IRREVOC_SW], tx_types_commited[IRREVOC_SW]);
-  printf("IrrevocAboSW started:%d  IrrevocAboSW commited: %d\n", tx_types_started[IRREVOCABO_SW], tx_types_commited[IRREVOCABO_SW]);
+  printf("SerialAboSW started:%d  IrrevocAboSW commited: %d\n", tx_types_started[SERIALABO_SW], tx_types_commited[SERIALABO_SW]);
   printf("BFHW commited: %d\n", tx_types_commited[BFHW]);
   printf("LITEHW commited: %d\n", litehw_count.load());
 #endif
@@ -367,14 +367,14 @@ parse_default_method_group()
   method_group *meth_gr = 0;
   if (env == NULL)
     {
-      return GTM::method_group_invalbrid();
+      return GTM::method_group_parallbrid();
     }
 
   while (isspace((unsigned char) *env))
     ++env;
-  if (strncmp(env, "invalbrid", 9) == 0)
+  if (strncmp(env, "parallbrid", 9) == 0)
     {
-      meth_gr = GTM::method_group_invalbrid();
+      meth_gr = GTM::method_group_parallbrid();
       env += 9;
     }
   else

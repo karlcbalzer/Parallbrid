@@ -117,7 +117,7 @@ public:
     tx->shared_state.store( gtm_thread::STATE_SERIAL
               | gtm_thread::STATE_SOFTWARE, std::memory_order_release);
     #ifdef DEBUG_PARALLBRID
-      tx->tx_types_started[IRREVOCABO_SW]++;
+      tx->tx_types_started[SERIALABO_SW]++;
     #endif
   }
 
@@ -135,7 +135,7 @@ public:
     tx->shared_state.store(0, std::memory_order_release);
     tx_data->clear();
     #ifdef DEBUG_PARALLBRID
-      tx->tx_types_commited[IRREVOCABO_SW]++;
+      tx->tx_types_commited[SERIALABO_SW]++;
     #endif
     return NO_RESTART;
   }

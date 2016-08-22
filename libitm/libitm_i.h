@@ -81,7 +81,7 @@ enum parallbrid_tx_types
   IRREVOC_SW,
   BFHW,
   LITEHW,
-  IRREVOCABO_SW,
+  SERIALABO_SW,
   NUM_TYPES
 };
 #endif
