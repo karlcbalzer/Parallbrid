@@ -62,7 +62,7 @@ libitm_la_SOURCES = \
 	query.cc useraction.cc util.cc \
 	sjlj.S tls.cc \
 	parallbrid-mg.cc parallbrid-m-sglsw.cc parallbrid-m-specsw.cc \
-	parallbrid-m-parallbrid.cc parallbrid-m-bfhw.cc parallbrid-m-serialabosw.cc bloomfilter.cc
+	parallbrid-m-irrevocsw.cc parallbrid-m-bfhw.cc parallbrid-m-serialabosw.cc bloomfilter.cc
 
 if ARCH_ARM
 libitm_la_SOURCES += hwcap.cc
