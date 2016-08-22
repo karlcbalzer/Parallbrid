@@ -61,8 +61,8 @@ libitm_la_SOURCES = \
 	clone.cc eh_cpp.cc local.cc \
 	query.cc useraction.cc util.cc \
 	sjlj.S tls.cc \
-	invalbrid-mg.cc invalbrid-m-sglsw.cc invalbrid-m-specsw.cc \
-	invalbrid-m-irrevocsw.cc invalbrid-m-bfhw.cc invalbrid-m-irrevocabosw.cc bloomfilter.cc
+	parallbrid-mg.cc parallbrid-m-sglsw.cc parallbrid-m-specsw.cc \
+	parallbrid-m-parallbrid.cc parallbrid-m-bfhw.cc parallbrid-m-serialabosw.cc bloomfilter.cc
 
 if ARCH_ARM
 libitm_la_SOURCES += hwcap.cc

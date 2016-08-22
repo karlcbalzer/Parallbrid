@@ -54,6 +54,14 @@ parallbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
 {
   gtm_thread *tx = gtm_thr();
 
+#ifdef DEBUG_PARALLBRID
+  if (tx == NULL)
+  {
+    tx = new gtm_thread();
+    set_gtm_thr(tx);
+  }
+#endif
+
   // ??? pr_undoLogCode is not properly defined in the ABI. Are barriers
   // omitted because they are not necessary (e.g., a transaction on thread-
   // local data) or because the compiler thinks that some kind of global
@@ -112,6 +120,13 @@ parallbrid_mg::begin(uint32_t prop, const gtm_jmpbuf *jb)
             tx = new gtm_thread();
             set_gtm_thr(tx);
           }
+
+#ifdef DEBUG_PARALLBRID
+          if (tmp_sw_cnt != 0)
+            tx->tx_types_started[BFHW]++;
+          else
+            tx->tx_types_started[LITEHW]++;
+#endif
           uint32_t htm_ret = htm_begin();
           if (htm_begin_success(htm_ret))
           {
@@ -347,7 +362,8 @@ parallbrid_mg::commit_EH(void *exc_ptr)
     // would abort.
     htm_commit();
     #ifdef DEBUG_PARALLBRID
-    gtm_thread::litehw_count++;
+    if (!htm_transaction_active())
+      tx->tx_types_commited[LITEHW]++;
     #endif
   }
   else
